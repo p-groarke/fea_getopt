@@ -243,7 +243,7 @@ utf32_to_any(const std::u32string& str) {
 }
 
 enum class user_option_e : std::uint8_t {
-	no_arg,
+	flag,
 	required_arg,
 	optional_arg,
 	default_arg,
@@ -261,7 +261,7 @@ struct user_option {
 			std::function<bool()> func, string&& help)
 			: long_opt(longopt)
 			, short_opt(shortopt)
-			, type(t)
+			, opt_type(t)
 			, flag_func(std::move(func))
 			, help_message(std::move(help)) {
 	}
@@ -269,15 +269,25 @@ struct user_option {
 			std::function<bool(string&&)> func, string&& help)
 			: long_opt(longopt)
 			, short_opt(shortopt)
-			, type(t)
+			, opt_type(t)
 			, one_arg_func(std::move(func))
 			, help_message(std::move(help)) {
+	}
+	user_option(string&& longopt, CharT shortopt, user_option_e t,
+			std::function<bool(string&&)> func, string&& help,
+			string&& default_val)
+			: long_opt(longopt)
+			, short_opt(shortopt)
+			, opt_type(t)
+			, one_arg_func(std::move(func))
+			, help_message(std::move(help))
+			, default_val(std::move(default_val)) {
 	}
 	user_option(string&& longopt, CharT shortopt, user_option_e t,
 			std::function<bool(std::vector<string>&&)> func, string&& help)
 			: long_opt(longopt)
 			, short_opt(shortopt)
-			, type(t)
+			, opt_type(t)
 			, multi_arg_func(std::move(func))
 			, help_message(std::move(help)) {
 	}
@@ -285,13 +295,14 @@ struct user_option {
 
 	string long_opt;
 	CharT short_opt;
-	user_option_e type = user_option_e::count;
+	user_option_e opt_type = user_option_e::count;
 
 	std::function<bool()> flag_func;
 	std::function<bool(string&&)> one_arg_func;
 	std::function<bool(std::vector<string>&&)> multi_arg_func;
 
 	string help_message;
+	string default_val;
 };
 } // namespace detail
 
@@ -467,6 +478,15 @@ template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::add_flag_option(string&& long_arg,
 		std::function<bool()>&& func, string&& help,
 		CharT short_arg /*= '\0'*/) {
+	using namespace detail;
+	_long_opt_to_user_opt.insert({ long_arg,
+			user_option<CharT>{
+					std::move(long_arg),
+					short_arg,
+					user_option_e::flag,
+					std::move(func),
+					std::move(help),
+			} });
 }
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::add_required_arg_option(string&& long_arg,
@@ -484,6 +504,16 @@ template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::add_default_arg_option(string&& long_arg,
 		std::function<bool(string&&)>&& func, string&& help,
 		string&& default_value, CharT short_arg /*= '\0'*/) {
+	using namespace detail;
+	_long_opt_to_user_opt.insert({ long_arg,
+			user_option<CharT>{
+					std::move(long_arg),
+					short_arg,
+					user_option_e::default_arg,
+					std::move(func),
+					std::move(help),
+					std::move(default_value),
+			} });
 }
 
 template <class CharT, class PrintfT>
@@ -758,19 +788,21 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 		}
 	};
 
-	constexpr size_t first_space = 1;
-	constexpr size_t shortarg_width = 4;
-	constexpr size_t shortarg_total_width = first_space + shortarg_width;
-	constexpr size_t longarg_space = 2;
-	constexpr size_t longarg_width_max = 30;
-	constexpr size_t rawarg_help_indent = 4;
+	constexpr size_t indent = 1;
+	constexpr size_t shortopt_width = 4;
+	constexpr size_t shortopt_total_width = indent + shortopt_width;
+	constexpr size_t longopt_space = 2;
+	constexpr size_t longopt_width_max = 30;
+	constexpr size_t rawopt_help_indent = 4;
 	const string opt_str = FEA_ML(" <optional>");
 	const string req_str = FEA_ML(" <value>");
 	const string multi_str = FEA_ML(" 'mul ti ple'");
 	const string default_beg = FEA_ML(" <=");
 	const string default_end = FEA_ML(">");
 
-	print(_help_intro + FEA_ML("\n"));
+	if (!_help_intro.empty()) {
+		print(_help_intro + FEA_ML("\n"));
+	}
 
 	// Usage
 	{
@@ -790,7 +822,7 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 		// The raw option's name is stored in its long_opt string.
 		size_t max_name_width = 0;
 		for (const user_option<CharT> raw_opt : _raw_user_opts) {
-			size_t name_width = raw_opt.long_opt.size() + rawarg_help_indent;
+			size_t name_width = raw_opt.long_opt.size() + rawopt_help_indent;
 			max_name_width = std::max(max_name_width, name_width);
 		}
 
@@ -800,96 +832,121 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 		// Now, print the raw option help.
 		for (const user_option<CharT> raw_opt : _raw_user_opts) {
 			// Print indentation.
-			print(FEA_ML("%*s"), int(first_space), FEA_ML(""));
+			print(FEA_ML("%*s"), int(indent), FEA_ML(""));
 
 			// Print the help, and use max_name_width so each help line is
 			// properly aligned.
 			print(FEA_ML("%-*s"), int(max_name_width),
 					raw_opt.long_opt.c_str());
-			print_description(
-					raw_opt.help_message, first_space + max_name_width);
+
+			// Print the help message. This will split the message if it is too
+			// wide, or if the user used '\n' in his message.
+			print_description(raw_opt.help_message, indent + max_name_width);
 		}
 		print(FEA_ML("\n"));
 	}
 
-	//{ /* Other args.*/
-	//	printf("Options:\n");
-	//	size_t la_width = 0;
-	//	for (const argument* x = args; x < args + args_size; x++) {
-	//		if (x->arg_type == type::raw_arg)
-	//			continue;
+	// All Other Options
+	{
+		print(FEA_ML("Options:\n"));
 
-	//		size_t s = 2 + x->long_arg.size() + longarg_space;
-	//		if (x->arg_type == type::optional_arg) {
-	//			s += opt_str.size();
-	//		} else if (x->arg_type == type::required_arg) {
-	//			s += req_str.size();
-	//		} else if (x->arg_type == type::default_arg) {
-	//			s += default_beg.size() + x->default_arg.size()
-	//					+ default_end.size();
-	//		} else if (x->arg_type == type::multi_arg) {
-	//			s += multi_str.size();
-	//		}
+		// First, compute the maximum width of long options.
+		size_t longopt_width = 0;
+		for (const std::pair<string, user_option<CharT>>& opt_p :
+				_long_opt_to_user_opt) {
+			const string& long_opt_str = opt_p.first;
+			const user_option<CharT>& opt = opt_p.second;
 
-	//		if (s > la_width)
-	//			la_width = s;
-	//	}
+			size_t size = 2 + long_opt_str.size() + longopt_space;
+			if (opt.opt_type == user_option_e::optional_arg) {
+				size += opt_str.size();
+			} else if (opt.opt_type == user_option_e::required_arg) {
+				size += req_str.size();
+			} else if (opt.opt_type == user_option_e::default_arg) {
+				size += default_beg.size() + opt.default_val.size()
+						+ default_end.size();
+			} else if (opt.opt_type == user_option_e::multi_arg) {
+				size += multi_str.size();
+			}
 
-	//	if (la_width > longarg_width_max) {
-	//		la_width = longarg_width_max;
-	//	}
+			longopt_width = std::max(longopt_width, size);
+		}
 
-	//	for (const argument* x = args; x < args + args_size; x++) {
-	//		if (x->arg_type == type::raw_arg)
-	//			continue;
+		// Cap it to longopt_width_max though. If it is bigger than this, we'll
+		// print it on a new line.
+		if (longopt_width > longopt_width_max) {
+			longopt_width = longopt_width_max;
+		}
 
-	//		printf("%*s", (int)first_space, "");
+		// Print the options.
+		for (const std::pair<string, user_option<CharT>>& opt_p :
+				_long_opt_to_user_opt) {
+			const string& long_opt_str = opt_p.first;
+			const user_option<CharT>& opt = opt_p.second;
 
-	//		if (x->short_arg != '\0') {
-	//			stack_string s_arg;
-	//			s_arg += "-";
-	//			s_arg += x->short_arg;
-	//			s_arg += ",";
-	//			printf("%-*s", (int)shortarg_width, s_arg.c_str());
-	//		} else {
-	//			printf("%*s", (int)shortarg_width, "");
-	//		}
+			// Print indentation.
+			print(FEA_ML("%*s"), int(indent), FEA_ML(""));
 
-	//		stack_string la_str;
-	//		la_str += "--";
-	//		la_str += x->long_arg;
-	//		if (x->arg_type == type::optional_arg) {
-	//			la_str += opt_str;
-	//		} else if (x->arg_type == type::required_arg) {
-	//			la_str += req_str;
-	//		} else if (x->arg_type == type::default_arg) {
-	//			la_str += default_beg;
-	//			la_str += x->default_arg;
-	//			la_str += default_end;
-	//		} else if (x->arg_type == type::multi_arg) {
-	//			la_str += multi_str;
-	//		}
+			// If the option has a shortarg, print that.
+			if (opt.short_opt != FEA_CH('\0')) {
+				string shortopt_str;
+				shortopt_str += FEA_ML("-");
+				shortopt_str += opt.short_opt;
+				shortopt_str += FEA_ML(",");
+				print(FEA_ML("%-*s"), int(shortopt_width),
+						shortopt_str.c_str());
+			} else {
+				print(FEA_ML("%*s"), int(shortopt_width), FEA_ML(""));
+			}
 
-	//		printf("%-*s", (int)la_width, la_str.c_str());
+			// Build the longopt string.
+			string longopt_str;
+			longopt_str += FEA_ML("--");
+			longopt_str += long_opt_str;
 
-	//		// TODO: Verify comparison is still ok (size works as exapected).
-	//		if (la_str.size() >= la_width) {
-	//			printf("\n");
-	//			printf("%*s", (int)(la_width + shortarg_total_width), "");
-	//		}
+			// Add the specific "instructions" for each type of arg.
+			if (opt.opt_type == user_option_e::optional_arg) {
+				longopt_str += opt_str;
+			} else if (opt.opt_type == user_option_e::required_arg) {
+				longopt_str += req_str;
+			} else if (opt.opt_type == user_option_e::default_arg) {
+				longopt_str += default_beg;
+				longopt_str += opt.default_val;
+				longopt_str += default_end;
+			} else if (opt.opt_type == user_option_e::multi_arg) {
+				longopt_str += multi_str;
+			}
 
-	//		print_description(x->description, la_width + shortarg_total_width);
-	//	}
+			// Print the longopt string.
+			print(FEA_ML("%-*s"), int(longopt_width), longopt_str.c_str());
 
-	//	if (la_width == 0) // No options, width is --help only.
-	//		la_width = 2 + 4 + longarg_space;
+			// If it was bigger than the max width, the description will be
+			// printed on the next line, indented up to the right position.
+			if (longopt_str.size() >= longopt_width) {
+				print(FEA_ML("\n"));
+				print(FEA_ML("%*s"), int(longopt_width + shortopt_total_width),
+						FEA_ML(""));
+			}
 
-	//	printf("%*s%-*s%-*s%s\n", (int)first_space, "", (int)shortarg_width,
-	//			"-h,", (int)la_width, "--help", "Print this help\n");
+			// Print the help message, indents appropriately and splits into
+			// multiple strings if the message is too wide.
+			print_description(
+					opt.help_message, longopt_width + shortopt_total_width);
+		}
 
-	//	printf("\n%.*s\n", (int)option.help_outro.size(),
-	//			option.help_outro.data());
-	//}
+		if (longopt_width == 0) // No options, width is --help only.
+			longopt_width = 2 + 4 + longopt_space;
+
+		// Print the help command help.
+		print(FEA_ML("%*s%-*s%-*s%s\n"), int(indent), FEA_ML(""),
+				int(shortopt_width), FEA_ML("-h,"), int(longopt_width),
+				FEA_ML("--help"), FEA_ML("Print this help\n"));
+
+		// Print user outro.
+		if (!_help_outro.empty()) {
+			print(FEA_ML("\n%s\n"), _help_outro.c_str());
+		}
+	}
 } // namespace fea
 
 

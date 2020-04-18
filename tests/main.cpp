@@ -28,6 +28,7 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 			},
 			FEA_ML("File to process.\nThis is a second indented string.\nAnd a "
 				   "third."));
+
 	opts.add_raw_option(
 			FEA_ML("other_raw_opt"),
 			[](string_t&& str) {
@@ -49,6 +50,33 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 				   "start at a newline, but still be split appropriately if I "
 				   "am too long because that would be unfortunate wouldn't it "
 				   "now."));
+
+	opts.add_flag_option(
+			FEA_ML("flag"), []() { return true; }, FEA_ML("A simple flag."),
+			FEA_CH('f'));
+
+	opts.add_default_arg_option(
+			FEA_ML("default_arg"),
+			[](string_t&& str) {
+				static_assert(
+						std::is_same_v<typename string_t::value_type, CharT>,
+						"unit test failed : Called with string must be same "
+						"type as getopt.");
+
+				fea::detail::any_print(str.c_str());
+
+				return true;
+			},
+			FEA_ML("Some looooooooong string that should be cut off by the "
+				   "library and reindented appropriately. Hopefully without "
+				   "splitting inside a word and making everything super nice "
+				   "for users that can even add backslash n if they want to "
+				   "start another sentence at the right indentantation like "
+				   "this following sentence.\nI am a sentence that should "
+				   "start at a newline, but still be split appropriately if I "
+				   "am too long because that would be unfortunate wouldn't it "
+				   "now."),
+			FEA_ML("d_val"), FEA_CH('d'));
 }
 
 template <class CharT>
@@ -71,7 +99,7 @@ std::pair<size_t, const CharT**> make_test_options() {
 	return { opts.size(), opts.data() };
 }
 
-TEST(fea_getopt, printing) {
+TEST(getopt, printing) {
 
 #if defined(_MSC_VER)
 	SetConsoleCP(CP_UTF8);
@@ -94,7 +122,6 @@ TEST(fea_getopt, printing) {
 
 	{
 		fea::get_opt<wchar_t> opt;
-		add_options(opt);
 		opt.print(L"This should compile and not %s.\n", L"throw");
 
 		const wchar_t* fmt = FEA_MAKE_LITERAL_T(wchar_t, "%s\n");
@@ -104,7 +131,6 @@ TEST(fea_getopt, printing) {
 
 	{
 		fea::get_opt<char16_t> opt;
-		add_options(opt);
 		opt.print(u"This should compile and not %s.\n", u"throw");
 
 		const char16_t* test = FEA_MAKE_LITERAL_T(char16_t, "test char16");
@@ -113,15 +139,13 @@ TEST(fea_getopt, printing) {
 
 	{
 		fea::get_opt<char32_t> opt;
-		add_options(opt);
-		opt.print(U"This should compile and not %s.\n", U"throw");
 
 		const char32_t* test = FEA_MAKE_LITERAL_T(char32_t, "test char32");
 		opt.print(U"%s\n", test);
 	}
 }
 
-TEST(fea_getopt, basics) {
+TEST(getopt, basics) {
 
 
 	{
@@ -142,16 +166,31 @@ TEST(fea_getopt, basics) {
 	{
 		fea::get_opt<wchar_t> opt;
 		add_options(opt);
+
+		{
+			auto [argc, argv] = make_print_help<wchar_t>();
+			opt.parse_options(argc, argv);
+		}
 	}
 
 	{
 		fea::get_opt<char16_t> opt;
 		add_options(opt);
+
+		{
+			auto [argc, argv] = make_print_help<char16_t>();
+			opt.parse_options(argc, argv);
+		}
 	}
 
 	{
 		fea::get_opt<char32_t> opt;
 		add_options(opt);
+
+		{
+			auto [argc, argv] = make_print_help<char32_t>();
+			opt.parse_options(argc, argv);
+		}
 	}
 }
 
