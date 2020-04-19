@@ -8,6 +8,50 @@
 
 namespace {
 std::filesystem::path exe_path;
+std::string last_printed_help(2048, '\0');
+std::wstring wlast_printed_help(2048, L'\0');
+
+#pragma warning(push)
+#pragma warning(disable : 4996)
+int print_to_string(const char* fmt, ...) {
+	last_printed_help.clear();
+	va_list args;
+	va_start(args, fmt);
+	int ret = vsprintf(last_printed_help.data(), fmt, args);
+	va_end(args);
+	return ret;
+}
+int print_to_string16(const char16_t* fmt, ...) {
+	std::string utf8 = fea::utf16_to_utf8({ fmt });
+
+	last_printed_help.clear();
+	va_list args;
+	va_start(args, fmt);
+	int ret = vsprintf(last_printed_help.data(), utf8.c_str(), args);
+	va_end(args);
+	return ret;
+}
+int print_to_string32(const char32_t* fmt, ...) {
+	std::string utf8 = fea::utf32_to_utf8({ fmt });
+
+	last_printed_help.clear();
+	va_list args;
+	va_start(args, fmt);
+	int ret = vsprintf(last_printed_help.data(), utf8.c_str(), args);
+	va_end(args);
+	return ret;
+}
+#pragma warning(pop)
+
+int wprint_to_string(const wchar_t* fmt, ...) {
+	wlast_printed_help.clear();
+	va_list args;
+	va_start(args, fmt);
+	int ret = wvsprintf(wlast_printed_help.data(), fmt, args);
+	va_end(args);
+	return ret;
+}
+
 
 template <class CharT, class PrintFunc>
 void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
@@ -22,6 +66,8 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 						"unit test failed : Called with string must be same "
 						"type as getopt.");
 
+				string_t cmp = FEA_ML("some raw arg");
+				EXPECT_EQ(str, cmp);
 				fea::detail::any_print(str.c_str());
 
 				return true;
@@ -80,7 +126,7 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 }
 
 template <class CharT>
-std::pair<size_t, const CharT**> make_print_help() {
+std::pair<size_t, const CharT**> test_help() {
 	static std::vector<const CharT*> opts = {
 		FEA_ML("tool.exe"),
 		FEA_ML("-h"),
@@ -90,7 +136,7 @@ std::pair<size_t, const CharT**> make_print_help() {
 }
 
 template <class CharT>
-std::pair<size_t, const CharT**> make_test_options() {
+std::pair<size_t, const CharT**> test_raw() {
 	static std::vector<const CharT*> opts = {
 		FEA_ML("tool.exe"),
 		FEA_ML("some raw arg"),
@@ -111,6 +157,8 @@ TEST(getopt, printing) {
 	// printf("%s\n", u8.c_str());
 	// wprintf(L"%s\n", u16.c_str());
 
+	std::string test2 = "my test";
+	printf(test2.c_str());
 	{
 		fea::get_opt<char> opt;
 		opt.print("This should compile and not %s.\n", "throw");
@@ -149,47 +197,66 @@ TEST(getopt, basics) {
 
 
 	{
-		fea::get_opt<char> opt;
+		fea::get_opt<char> opt{ print_to_string };
 		add_options(opt);
 
 		{
-			auto [argc, argv] = make_print_help<char>();
+			auto [argc, argv] = test_help<char>();
 			opt.parse_options(argc, argv);
 		}
 
-		//{
-		//	auto [argc, argv] = make_test_options<char>();
-		//	opt.parse_options(argc, argv);
-		//}
-	}
-
-	{
-		fea::get_opt<wchar_t> opt;
-		add_options(opt);
-
 		{
-			auto [argc, argv] = make_print_help<wchar_t>();
+			auto [argc, argv] = test_raw<char>();
 			opt.parse_options(argc, argv);
+			// EXPECT_EQ(last_printed_help, std::string{ argv[1] });
 		}
 	}
 
 	{
-		fea::get_opt<char16_t> opt;
+		fea::get_opt<wchar_t> opt{ wprint_to_string };
 		add_options(opt);
 
 		{
-			auto [argc, argv] = make_print_help<char16_t>();
+			auto [argc, argv] = test_help<wchar_t>();
 			opt.parse_options(argc, argv);
+		}
+
+		{
+			auto [argc, argv] = test_raw<wchar_t>();
+			opt.parse_options(argc, argv);
+			// EXPECT_EQ(last_printed_help, std::string{ argv[1] });
 		}
 	}
 
 	{
-		fea::get_opt<char32_t> opt;
+		fea::get_opt<char16_t> opt{ print_to_string16 };
 		add_options(opt);
 
 		{
-			auto [argc, argv] = make_print_help<char32_t>();
+			auto [argc, argv] = test_help<char16_t>();
 			opt.parse_options(argc, argv);
+		}
+
+		{
+			auto [argc, argv] = test_raw<char16_t>();
+			opt.parse_options(argc, argv);
+			// EXPECT_EQ(last_printed_help, std::string{ argv[1] });
+		}
+	}
+
+	{
+		fea::get_opt<char32_t> opt{ print_to_string32 };
+		add_options(opt);
+
+		{
+			auto [argc, argv] = test_help<char32_t>();
+			opt.parse_options(argc, argv);
+		}
+
+		{
+			auto [argc, argv] = test_raw<char32_t>();
+			opt.parse_options(argc, argv);
+			// EXPECT_EQ(last_printed_help, std::string{ argv[1] });
 		}
 	}
 }

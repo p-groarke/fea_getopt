@@ -185,13 +185,6 @@ constexpr auto get_print() {
 }
 
 template <class CharT, class... Args>
-void any_print(const std::basic_string<CharT, std::char_traits<CharT>,
-					   std::allocator<CharT>>& format,
-		const Args&... args) {
-	any_print(format.c_str(), args...);
-}
-
-template <class CharT, class... Args>
 void any_print(const CharT* format, const Args&... args) {
 	constexpr auto print_func = get_print<CharT>();
 
@@ -207,6 +200,14 @@ void any_print(const CharT* format, const Args&... args) {
 			},
 			utf8_tup);
 }
+
+template <class CharT, class... Args>
+void any_print(const std::basic_string<CharT, std::char_traits<CharT>,
+					   std::allocator<CharT>>& format,
+		const Args&... args) {
+	any_print(format.c_str(), args...);
+}
+
 
 template <class CharT>
 auto any_to_utf32(const std::basic_string<CharT, std::char_traits<CharT>,
@@ -259,50 +260,52 @@ struct user_option {
 
 	user_option(string&& longopt, CharT shortopt, user_option_e t,
 			std::function<bool()> func, string&& help)
-			: long_opt(longopt)
-			, short_opt(shortopt)
+			: long_name(longopt)
+			, short_name(shortopt)
 			, opt_type(t)
 			, flag_func(std::move(func))
-			, help_message(std::move(help)) {
+			, description(std::move(help)) {
 	}
 	user_option(string&& longopt, CharT shortopt, user_option_e t,
 			std::function<bool(string&&)> func, string&& help)
-			: long_opt(longopt)
-			, short_opt(shortopt)
+			: long_name(longopt)
+			, short_name(shortopt)
 			, opt_type(t)
 			, one_arg_func(std::move(func))
-			, help_message(std::move(help)) {
+			, description(std::move(help)) {
 	}
 	user_option(string&& longopt, CharT shortopt, user_option_e t,
 			std::function<bool(string&&)> func, string&& help,
 			string&& default_val)
-			: long_opt(longopt)
-			, short_opt(shortopt)
+			: long_name(longopt)
+			, short_name(shortopt)
 			, opt_type(t)
 			, one_arg_func(std::move(func))
-			, help_message(std::move(help))
+			, description(std::move(help))
 			, default_val(std::move(default_val)) {
 	}
 	user_option(string&& longopt, CharT shortopt, user_option_e t,
 			std::function<bool(std::vector<string>&&)> func, string&& help)
-			: long_opt(longopt)
-			, short_opt(shortopt)
+			: long_name(longopt)
+			, short_name(shortopt)
 			, opt_type(t)
 			, multi_arg_func(std::move(func))
-			, help_message(std::move(help)) {
+			, description(std::move(help)) {
 	}
 
 
-	string long_opt;
-	CharT short_opt;
+	string long_name;
+	CharT short_name;
 	user_option_e opt_type = user_option_e::count;
 
 	std::function<bool()> flag_func;
 	std::function<bool(string&&)> one_arg_func;
 	std::function<bool(std::vector<string>&&)> multi_arg_func;
 
-	string help_message;
+	string description;
 	string default_val;
+
+	bool has_been_parsed = false;
 };
 } // namespace detail
 
@@ -330,39 +333,39 @@ struct get_opt {
 	// front of them. They are often file names or strings. These will be
 	// parsed in the order of appearance. ex : 'my_tool a/raw/arg.txt'
 	// Quotes will be added to the name.
-	void add_raw_option(string&& help_name,
-			std::function<bool(string&&)>&& func, string&& help);
+	void add_raw_option(
+			string&& name, std::function<bool(string&&)>&& func, string&& help);
 
 	// An option that doesn't need any argument. AKA a flag.
 	// ex : '--flag'
-	void add_flag_option(string&& long_arg, std::function<bool()>&& func,
-			string&& help, CharT short_arg = FEA_CH('\0'));
+	void add_flag_option(string&& long_name, std::function<bool()>&& func,
+			string&& help, CharT short_name = FEA_CH('\0'));
 
 	// An option that can accept a single argument or not.
 	// If no user argument is provided, your callback is called with your
 	// default argument.
 	// ex : '--has_default arg' or '--has_default'
-	void add_default_arg_option(string&& long_arg,
+	void add_default_arg_option(string&& long_name,
 			std::function<bool(string&&)>&& func, string&& help,
-			string&& default_value, CharT short_arg = FEA_CH('\0'));
+			string&& default_value, CharT short_name = FEA_CH('\0'));
 
 	// An option that can accept a single argument or not.
 	// ex : '--optional arg' or '--optional'
-	void add_optional_arg_option(string&& long_arg,
+	void add_optional_arg_option(string&& long_name,
 			std::function<bool(string&&)>&& func, string&& help,
-			CharT short_arg = FEA_CH('\0'));
+			CharT short_name = FEA_CH('\0'));
 
 	// An option that requires a single argument to be set.
 	// ex : '--required arg'
-	void add_required_arg_option(string&& long_arg,
+	void add_required_arg_option(string&& long_name,
 			std::function<bool(string&&)>&& func, string&& help,
-			CharT short_arg = FEA_CH('\0'));
+			CharT short_name = FEA_CH('\0'));
 
 	// An option that accepts multiple arguments, enclosed in quotes.
 	// ex : '--multi "a b c d"'
-	void add_multi_arg_option(string&& long_arg,
+	void add_multi_arg_option(string&& long_name,
 			std::function<bool(std::vector<string>&&)>&& func, string&& help,
-			CharT short_arg = FEA_CH('\0'));
+			CharT short_name = FEA_CH('\0'));
 
 	// Add behavior that requires the first argument (argv[0]).
 	// The first argument is always the execution path.
@@ -378,10 +381,12 @@ struct get_opt {
 	// (and prints help if there was an error).
 	bool parse_options(size_t argc, CharT const* const* argv);
 
-	template <class... Args>
-	void print(const string& format, const Args&... args) const;
-	template <class... Args>
-	void print(const CharT* format, const Args&... args) const;
+	void print(const string& message) const;
+
+	// template <class... Args>
+	// void print(const string& format, const Args&... args) const;
+	// template <class... Args>
+	// void print(const CharT* format, const Args&... args) const;
 
 private:
 	static_assert(
@@ -419,8 +424,8 @@ private:
 
 	void on_arg0_enter(fsm_t&);
 	void on_parse_next_enter(fsm_t&);
-	void on_parse_longarg(fsm_t&);
-	void on_parse_shortarg(fsm_t&);
+	void on_parse_longopt(fsm_t&);
+	void on_parse_shortopt(fsm_t&);
 	void on_parse_concat(fsm_t&);
 	void on_parse_raw(fsm_t&);
 	void on_print_error(fsm_t&);
@@ -431,7 +436,7 @@ private:
 	std::unordered_map<CharT, string> _short_opt_to_long_opt;
 	std::unordered_map<string, detail::user_option<CharT>>
 			_long_opt_to_user_opt;
-	std::vector<detail::user_option<CharT>> _raw_user_opts;
+	std::vector<detail::user_option<CharT>> _raw_opts;
 	std::function<bool(string&&)> _arg0_func;
 
 	std::vector<string> _args;
@@ -461,11 +466,11 @@ get_opt<CharT, PrintfT>::get_opt(
 
 
 template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::add_raw_option(string&& help_name,
-		std::function<bool(string&&)>&& func, string&& help) {
+void get_opt<CharT, PrintfT>::add_raw_option(
+		string&& name, std::function<bool(string&&)>&& func, string&& help) {
 	using namespace detail;
-	_raw_user_opts.push_back(user_option<CharT>{
-			std::move(FEA_ML("\"") + help_name + FEA_ML("\"")),
+	_raw_opts.push_back(user_option<CharT>{
+			std::move(FEA_ML("\"") + name + FEA_ML("\"")),
 			FEA_CH('\0'),
 			user_option_e::raw_arg,
 			std::move(func),
@@ -475,40 +480,76 @@ void get_opt<CharT, PrintfT>::add_raw_option(string&& help_name,
 
 
 template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::add_flag_option(string&& long_arg,
+void get_opt<CharT, PrintfT>::add_flag_option(string&& long_name,
 		std::function<bool()>&& func, string&& help,
-		CharT short_arg /*= '\0'*/) {
+		CharT short_name /*= '\0'*/) {
 	using namespace detail;
-	_long_opt_to_user_opt.insert({ long_arg,
+
+	if (short_name != FEA_CH('\0')) {
+		_short_opt_to_long_opt.insert({ short_name, long_name });
+	}
+
+	_long_opt_to_user_opt.insert({ long_name,
 			user_option<CharT>{
-					std::move(long_arg),
-					short_arg,
+					std::move(long_name),
+					short_name,
 					user_option_e::flag,
 					std::move(func),
 					std::move(help),
 			} });
 }
 template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::add_required_arg_option(string&& long_arg,
+void get_opt<CharT, PrintfT>::add_required_arg_option(string&& long_name,
 		std::function<bool(string&&)>&& func, string&& help,
-		CharT short_arg /*= '\0'*/) {
-}
-
-template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::add_optional_arg_option(string&& long_arg,
-		std::function<bool(string&&)>&& func, string&& help,
-		CharT short_arg /*= '\0'*/) {
-}
-
-template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::add_default_arg_option(string&& long_arg,
-		std::function<bool(string&&)>&& func, string&& help,
-		string&& default_value, CharT short_arg /*= '\0'*/) {
+		CharT short_name /*= '\0'*/) {
 	using namespace detail;
-	_long_opt_to_user_opt.insert({ long_arg,
+
+	if (short_name != FEA_CH('\0')) {
+		_short_opt_to_long_opt.insert({ short_name, long_name });
+	}
+
+	_long_opt_to_user_opt.insert({ long_name,
 			user_option<CharT>{
-					std::move(long_arg),
-					short_arg,
+					std::move(long_name),
+					short_name,
+					user_option_e::required_arg,
+					std::move(func),
+					std::move(help),
+			} });
+}
+
+template <class CharT, class PrintfT>
+void get_opt<CharT, PrintfT>::add_optional_arg_option(string&& long_name,
+		std::function<bool(string&&)>&& func, string&& help,
+		CharT short_name /*= '\0'*/) {
+	using namespace detail;
+	if (short_name != FEA_CH('\0')) {
+		_short_opt_to_long_opt.insert({ short_name, long_name });
+	}
+
+	_long_opt_to_user_opt.insert({ long_name,
+			user_option<CharT>{
+					std::move(long_name),
+					short_name,
+					user_option_e::optional_arg,
+					std::move(func),
+					std::move(help),
+			} });
+}
+
+template <class CharT, class PrintfT>
+void get_opt<CharT, PrintfT>::add_default_arg_option(string&& long_name,
+		std::function<bool(string&&)>&& func, string&& help,
+		string&& default_value, CharT short_name /*= '\0'*/) {
+	using namespace detail;
+	if (short_name != FEA_CH('\0')) {
+		_short_opt_to_long_opt.insert({ short_name, long_name });
+	}
+
+	_long_opt_to_user_opt.insert({ long_name,
+			user_option<CharT>{
+					std::move(long_name),
+					short_name,
 					user_option_e::default_arg,
 					std::move(func),
 					std::move(help),
@@ -517,15 +558,29 @@ void get_opt<CharT, PrintfT>::add_default_arg_option(string&& long_arg,
 }
 
 template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::add_multi_arg_option(string&& long_arg,
+void get_opt<CharT, PrintfT>::add_multi_arg_option(string&& long_name,
 		std::function<bool(std::vector<string>&&)>&& func, string&& help,
-		CharT short_arg /*= '\0'*/) {
+		CharT short_name /*= '\0'*/) {
+	using namespace detail;
+	if (short_name != FEA_CH('\0')) {
+		_short_opt_to_long_opt.insert({ short_name, long_name });
+	}
+
+	_long_opt_to_user_opt.insert({ long_name,
+			user_option<CharT>{
+					std::move(long_name),
+					short_name,
+					user_option_e::multi_arg,
+					std::move(func),
+					std::move(help),
+			} });
 }
 
 
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::add_arg0_behavior(
 		std::function<bool(string&&)>&& func) {
+	_arg0_func = std::move(func);
 }
 
 
@@ -564,31 +619,39 @@ bool get_opt<CharT, PrintfT>::parse_options(
 	return true;
 }
 
-
 template <class CharT, class PrintfT>
-template <class... Args>
-void get_opt<CharT, PrintfT>::print(
-		const string& format, const Args&... args) const {
-	print(format.c_str(), args...);
+void get_opt<CharT, PrintfT>::print(const string& message) const {
+	_print_func(message.c_str());
 }
 
-template <class CharT, class PrintfT>
-template <class... Args>
-void get_opt<CharT, PrintfT>::print(
-		const CharT* format, const Args&... args) const {
 
-	auto utf8_tup = std::apply(
-			[](const auto&... margs) {
-				return std::make_tuple(detail::to_utf8_str(margs)...);
-			},
-			std::forward_as_tuple(args...));
-
-	std::apply(
-			[&, this](const auto&... margs) {
-				_print_func(format, detail::do_c_str(margs)...);
-			},
-			utf8_tup);
-}
+// template <class CharT, class PrintfT>
+// template <class... Args>
+// void get_opt<CharT, PrintfT>::print(
+//		const string& format, const Args&... args) const {
+//	print(format.c_str(), args...);
+//}
+//
+// template <class CharT, class PrintfT>
+// template <class... Args>
+// void get_opt<CharT, PrintfT>::print(
+//		const CharT* format, const Args&... args) const {
+//
+//	auto utf8_tup = std::apply(
+//			[](const auto&... margs) {
+//				return std::make_tuple(detail::to_utf8_str(margs)...);
+//			},
+//			std::forward_as_tuple(args...));
+//
+//	auto test_tup = std::apply(
+//			[&, this](const auto&... margs) {
+//				return std::make_tuple(detail::do_c_str(margs)...);
+//			},
+//			utf8_tup);
+//
+//	std::apply([&, this](auto... margs) { _print_func(format, margs...); },
+//			test_tup);
+//}
 
 
 template <class CharT, class PrintfT>
@@ -625,6 +688,16 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		choose_state.add_event<fsm_event::on_enter>(
 				&get_opt::on_parse_next_enter);
 		ret->add_state<state::choose_parsing>(std::move(choose_state));
+	}
+
+	// raw
+	{
+		state_t raw_state;
+		raw_state.add_transition<transition::error, state::end>();
+		raw_state.add_transition<transition::parse_next,
+				state::choose_parsing>();
+		raw_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_raw);
+		ret->add_state<state::parse_raw>(std::move(raw_state));
 	}
 
 	// end
@@ -671,11 +744,16 @@ void get_opt<CharT, PrintfT>::on_arg0_enter(fsm_t& m) {
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_parse_next_enter(fsm_t& m) {
 
+	if (_parsing_args.empty()) {
+		return m.trigger<transition::exit>(this);
+	}
+
 	string& first = _parsing_args.front();
 
 	// help
 	if (first == FEA_ML("-h") || first == FEA_ML("--help")
-			|| first == FEA_ML("/?") || first == FEA_ML("/help")) {
+			|| first == FEA_ML("/?") || first == FEA_ML("/help")
+			|| first == FEA_ML("/h")) {
 		return m.trigger<transition::help>(this);
 	}
 
@@ -697,6 +775,47 @@ void get_opt<CharT, PrintfT>::on_parse_next_enter(fsm_t& m) {
 	// Everything else failed, check raw args. ex '"some arg"'
 	return m.trigger<transition::do_raw>(this);
 }
+
+template <class CharT, class PrintfT>
+void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t&) {
+}
+
+template <class CharT, class PrintfT>
+void get_opt<CharT, PrintfT>::on_parse_shortopt(fsm_t&) {
+}
+
+template <class CharT, class PrintfT>
+void get_opt<CharT, PrintfT>::on_parse_concat(fsm_t&) {
+}
+
+template <class CharT, class PrintfT>
+void get_opt<CharT, PrintfT>::on_parse_raw(fsm_t& m) {
+	using namespace detail;
+
+	auto next_rawopt = std::find_if(_raw_opts.begin(), _raw_opts.end(),
+			[](const user_option<CharT>& o) { return !o.has_been_parsed; });
+
+	// We've parsed all raw options, user provided options are curropted.
+	if (next_rawopt == _raw_opts.end()) {
+		_error_message = FEA_ML("Could not parse : '") + _parsing_args.front()
+				+ FEA_ML("'\n");
+		_error_message += FEA_ML("All arguments have previously been parsed.");
+		return m.template trigger<transition::error>(this);
+	}
+
+	bool success = next_rawopt->one_arg_func(std::move(_parsing_args.front()));
+
+	if (!success) {
+		_error_message = FEA_ML("'") + _parsing_args.front()
+				+ FEA_ML("' problem parsing argument.");
+		return m.template trigger<transition::error>(this);
+	}
+
+	_parsing_args.pop_front();
+
+	return m.template trigger<transition::parse_next>(this);
+}
+
 
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_print_error(fsm_t& m) {
@@ -807,9 +926,9 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 	// Usage
 	{
 		string out_str;
-		for (const user_option<CharT>& raw_opt : _raw_user_opts) {
+		for (const user_option<CharT>& raw_opt : _raw_opts) {
 			out_str += FEA_ML(" ");
-			out_str += raw_opt.long_opt;
+			out_str += raw_opt.long_name;
 		}
 
 		print(FEA_ML("\nUsage: %s%s [options]\n\n"), _args.front().c_str(),
@@ -817,12 +936,12 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 	}
 
 	// Raw Options
-	if (!_raw_user_opts.empty()) {
+	if (!_raw_opts.empty()) {
 		// Find the biggest raw option name size.
 		// The raw option's name is stored in its long_opt string.
 		size_t max_name_width = 0;
-		for (const user_option<CharT> raw_opt : _raw_user_opts) {
-			size_t name_width = raw_opt.long_opt.size() + rawopt_help_indent;
+		for (const user_option<CharT> raw_opt : _raw_opts) {
+			size_t name_width = raw_opt.long_name.size() + rawopt_help_indent;
 			max_name_width = std::max(max_name_width, name_width);
 		}
 
@@ -830,18 +949,18 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 		print(FEA_ML("Arguments:\n"));
 
 		// Now, print the raw option help.
-		for (const user_option<CharT> raw_opt : _raw_user_opts) {
+		for (const user_option<CharT> raw_opt : _raw_opts) {
 			// Print indentation.
 			print(FEA_ML("%*s"), int(indent), FEA_ML(""));
 
 			// Print the help, and use max_name_width so each help line is
 			// properly aligned.
 			print(FEA_ML("%-*s"), int(max_name_width),
-					raw_opt.long_opt.c_str());
+					raw_opt.long_name.c_str());
 
 			// Print the help message. This will split the message if it is too
 			// wide, or if the user used '\n' in his message.
-			print_description(raw_opt.help_message, indent + max_name_width);
+			print_description(raw_opt.description, indent + max_name_width);
 		}
 		print(FEA_ML("\n"));
 	}
@@ -888,10 +1007,10 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 			print(FEA_ML("%*s"), int(indent), FEA_ML(""));
 
 			// If the option has a shortarg, print that.
-			if (opt.short_opt != FEA_CH('\0')) {
+			if (opt.short_name != FEA_CH('\0')) {
 				string shortopt_str;
 				shortopt_str += FEA_ML("-");
-				shortopt_str += opt.short_opt;
+				shortopt_str += opt.short_name;
 				shortopt_str += FEA_ML(",");
 				print(FEA_ML("%-*s"), int(shortopt_width),
 						shortopt_str.c_str());
@@ -931,7 +1050,7 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 			// Print the help message, indents appropriately and splits into
 			// multiple strings if the message is too wide.
 			print_description(
-					opt.help_message, longopt_width + shortopt_total_width);
+					opt.description, longopt_width + shortopt_total_width);
 		}
 
 		if (longopt_width == 0) // No options, width is --help only.
