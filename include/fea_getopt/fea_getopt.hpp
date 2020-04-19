@@ -84,164 +84,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace fea {
 namespace detail {
-template <class T>
-struct is_string : std::false_type {};
-template <class T>
-struct is_string<std::basic_string<T, std::char_traits<T>, std::allocator<T>>>
-		: std::true_type {};
-
-template <class T>
-inline constexpr bool is_string_v = is_string<T>::value;
-
-template <class T>
-struct is_char16_array : std::false_type {};
-template <>
-struct is_char16_array<char16_t[]> : std::true_type {};
-template <size_t N>
-struct is_char16_array<char16_t[N]> : std::true_type {};
-
-template <class T>
-inline constexpr bool is_char16_array_v = is_char16_array<T>::value;
-
-template <class T>
-struct is_char32_array : std::false_type {};
-template <>
-struct is_char32_array<char32_t[]> : std::true_type {};
-template <size_t N>
-struct is_char32_array<char32_t[N]> : std::true_type {};
-
-template <class T>
-inline constexpr bool is_char32_array_v = is_char32_array<T>::value;
-
-template <class T>
-constexpr auto to_utf8_str(const T& t) {
-	using char16_str_t = std::basic_string<char16_t, std::char_traits<char16_t>,
-			std::allocator<char16_t>>;
-
-	using char32_str_t = std::basic_string<char32_t, std::char_traits<char32_t>,
-			std::allocator<char32_t>>;
-
-	if constexpr (std::is_same_v<T, const char16_t*>) {
-		return utf16_to_utf8({ t });
-	} else if constexpr (is_char16_array_v<T>) {
-		return utf16_to_utf8({ t });
-	} else if constexpr (std::is_same_v<T, char16_str_t>) {
-		return utf16_to_utf8(t);
-	} else if constexpr (std::is_same_v<T, const char32_t*>) {
-		return utf32_to_utf8({ t });
-	} else if constexpr (is_char32_array_v<T>) {
-		return utf32_to_utf8({ t });
-	} else if constexpr (std::is_same_v<T, char32_str_t>) {
-		return utf32_to_utf8(t);
-	} else {
-		return t;
-	}
+inline int mprintf(const std::string& message) {
+	return printf(message.c_str());
 }
-
-template <class T>
-constexpr auto do_c_str(const T& t) {
-	if constexpr (is_string_v<T>) {
-		return t.c_str();
-	} else {
-		return t;
-	}
+inline int mwprintf(const std::wstring& message) {
+	return wprintf(message.c_str());
 }
-
-inline int u16printf(const char16_t* fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-
-	auto utf8 = utf16_to_utf8({ fmt });
-	int ret = vprintf(utf8.c_str(), args);
-
-	va_end(args);
-	return ret;
+inline int u16printf(const std::u16string& message) {
+	std::string out = utf16_to_utf8(message);
+	return printf(out.c_str());
 }
-
-inline int u32printf(const char32_t* fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-
-	auto utf8 = utf32_to_utf8({ fmt });
-	int ret = vprintf(utf8.c_str(), args);
-
-	va_end(args);
-	return ret;
+inline int u32printf(const std::u32string& message) {
+	std::string out = utf32_to_utf8(message);
+	return printf(out.c_str());
 }
 
 template <class CharT>
 constexpr auto get_print() {
 	if constexpr (std::is_same_v<CharT, char>) {
-		return printf;
+		return mprintf;
 	} else if constexpr (std::is_same_v<CharT, wchar_t>) {
-		return wprintf;
+		return mwprintf;
 	} else if constexpr (std::is_same_v<CharT, char16_t>) {
-		// We will convert char16_t to utf8, so use printf.
+		// By default, we convert char16_t to utf8, so it uses printf.
 		return u16printf;
 	} else if constexpr (std::is_same_v<CharT, char32_t>) {
-		// We will convert char32_t to utf8, so use printf.
+		// By default, we convert char32_t to utf8, so it uses printf.
 		return u32printf;
 	}
 }
 
-template <class CharT, class... Args>
-void any_print(const CharT* format, const Args&... args) {
-	constexpr auto print_func = get_print<CharT>();
-
-	auto utf8_tup = std::apply(
-			[](const auto&... margs) {
-				return std::make_tuple(detail::to_utf8_str(margs)...);
-			},
-			std::forward_as_tuple(args...));
-
-	std::apply(
-			[&](const auto&... margs) {
-				print_func(format, detail::do_c_str(margs)...);
-			},
-			utf8_tup);
-}
-
-template <class CharT, class... Args>
-void any_print(const std::basic_string<CharT, std::char_traits<CharT>,
-					   std::allocator<CharT>>& format,
-		const Args&... args) {
-	any_print(format.c_str(), args...);
-}
-
-
-template <class CharT>
-auto any_to_utf32(const std::basic_string<CharT, std::char_traits<CharT>,
-		std::allocator<CharT>>& str) {
-	if constexpr (std::is_same_v<CharT, char>) {
-		return utf8_to_utf32(str);
-	} else if constexpr (std::is_same_v<CharT, wchar_t>) {
-		return utf16_to_utf32(str);
-	} else if constexpr (std::is_same_v<CharT, char16_t>) {
-		return utf16_to_utf32(str);
-	} else if constexpr (std::is_same_v<CharT, char32_t>) {
-		return std::u32string{ str };
-	} else {
-		assert(false);
-		throw std::runtime_error{ "any_to_utf8 : unsupported string type" };
-	}
-}
-
-template <class CharT>
-std::basic_string<CharT, std::char_traits<CharT>, std::allocator<CharT>>
-utf32_to_any(const std::u32string& str) {
-	if constexpr (std::is_same_v<CharT, char>) {
-		return utf32_to_utf8(str);
-	} else if constexpr (std::is_same_v<CharT, wchar_t>) {
-		return utf32_to_utf16_w(str);
-	} else if constexpr (std::is_same_v<CharT, char16_t>) {
-		return utf32_to_utf16(str);
-	} else if constexpr (std::is_same_v<CharT, char32_t>) {
-		return str;
-	} else {
-		assert(false);
-		throw std::runtime_error{ "any_to_utf8 : unsupported string type" };
-	}
-}
 
 enum class user_option_e : std::uint8_t {
 	flag,
@@ -369,7 +241,12 @@ struct get_opt {
 
 	// Add behavior that requires the first argument (argv[0]).
 	// The first argument is always the execution path.
-	void add_arg0_behavior(std::function<bool(string&&)>&& func);
+	void add_arg0_callback(std::function<bool(string&&)>&& func);
+
+	// Add help callback, which will be called whenever the user passes in a
+	// help option. It is called after help has been printed, to make sure we
+	// never corrupt the help printing.
+	void add_help_callback(std::function<void(string&&)>&& func);
 
 	// Adds some text before printing the help.
 	void add_help_intro(const string& message);
@@ -381,12 +258,12 @@ struct get_opt {
 	// (and prints help if there was an error).
 	bool parse_options(size_t argc, CharT const* const* argv);
 
+	// Generic print.
 	void print(const string& message) const;
 
-	// template <class... Args>
-	// void print(const string& format, const Args&... args) const;
-	// template <class... Args>
-	// void print(const CharT* format, const Args&... args) const;
+	// No need to call this. It is called every time you parse options (assuming
+	// you need to parse them more than once).
+	void reset();
 
 private:
 	static_assert(
@@ -437,9 +314,11 @@ private:
 	std::unordered_map<string, detail::user_option<CharT>>
 			_long_opt_to_user_opt;
 	std::vector<detail::user_option<CharT>> _raw_opts;
-	std::function<bool(string&&)> _arg0_func;
 
-	std::vector<string> _args;
+	std::function<bool(string&&)> _arg0_func;
+	std::function<void(string&&)> _help_func;
+
+	std::vector<string> _all_args;
 	PrintfT _print_func;
 
 	string _help_intro;
@@ -448,7 +327,7 @@ private:
 	size_t _output_width = 120;
 
 	// State machine eval things :
-	std::deque<string> _parsing_args;
+	std::deque<string> _parser_args;
 	string _error_message;
 };
 
@@ -462,6 +341,22 @@ get_opt<CharT, PrintfT>::get_opt(
 		PrintfT printf_func, size_t output_width /* = 120*/)
 		: _print_func(printf_func)
 		, _output_width(output_width) {
+}
+
+template <class CharT, class PrintfT>
+void get_opt<CharT, PrintfT>::reset() {
+	_machine->reset();
+
+	_all_args.clear();
+	_parser_args.clear();
+
+	for (auto& r : _raw_opts) {
+		r.has_been_parsed = false;
+	}
+
+	for (auto& p : _long_opt_to_user_opt) {
+		p.second.has_been_parsed = false;
+	}
 }
 
 
@@ -578,9 +473,15 @@ void get_opt<CharT, PrintfT>::add_multi_arg_option(string&& long_name,
 
 
 template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::add_arg0_behavior(
+void get_opt<CharT, PrintfT>::add_arg0_callback(
 		std::function<bool(string&&)>&& func) {
 	_arg0_func = std::move(func);
+}
+
+template <class CharT, class PrintfT>
+void fea::get_opt<CharT, PrintfT>::add_help_callback(
+		std::function<void(string&&)>&& func) {
+	_help_func = std::move(func);
 }
 
 
@@ -599,17 +500,14 @@ void get_opt<CharT, PrintfT>::add_help_outro(const string& message) {
 template <class CharT, class PrintfT>
 bool get_opt<CharT, PrintfT>::parse_options(
 		size_t argc, CharT const* const* argv) {
-	_machine->reset();
+	reset();
 
-	_args.clear();
-	_parsing_args.clear();
-
-	_args.reserve(argc);
+	_all_args.reserve(argc);
 	//_parsing_args.reserve(argc);
 
 	for (size_t i = 0; i < argc; ++i) {
-		_args.push_back({ argv[i] });
-		_parsing_args.push_back({ argv[i] });
+		_all_args.push_back({ argv[i] });
+		_parser_args.push_back({ argv[i] });
 	}
 
 	while (!_machine->finished()) {
@@ -623,36 +521,6 @@ template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::print(const string& message) const {
 	_print_func(message.c_str());
 }
-
-
-// template <class CharT, class PrintfT>
-// template <class... Args>
-// void get_opt<CharT, PrintfT>::print(
-//		const string& format, const Args&... args) const {
-//	print(format.c_str(), args...);
-//}
-//
-// template <class CharT, class PrintfT>
-// template <class... Args>
-// void get_opt<CharT, PrintfT>::print(
-//		const CharT* format, const Args&... args) const {
-//
-//	auto utf8_tup = std::apply(
-//			[](const auto&... margs) {
-//				return std::make_tuple(detail::to_utf8_str(margs)...);
-//			},
-//			std::forward_as_tuple(args...));
-//
-//	auto test_tup = std::apply(
-//			[&, this](const auto&... margs) {
-//				return std::make_tuple(detail::do_c_str(margs)...);
-//			},
-//			utf8_tup);
-//
-//	std::apply([&, this](auto... margs) { _print_func(format, margs...); },
-//			test_tup);
-//}
-
 
 template <class CharT, class PrintfT>
 std::unique_ptr<typename get_opt<CharT, PrintfT>::fsm_t>
@@ -719,22 +587,22 @@ get_opt<CharT, PrintfT>::make_machine() const {
 
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_arg0_enter(fsm_t& m) {
-	if (_parsing_args.empty()) {
+	if (_parser_args.empty()) {
 		return m.trigger<transition::error>(this);
 	}
 
 	bool success = true;
 	if (_arg0_func) {
-		success = std::invoke(_arg0_func, std::move(_parsing_args.front()));
+		success = std::invoke(_arg0_func, std::move(_parser_args.front()));
 	}
 
-	_parsing_args.pop_front();
+	_parser_args.pop_front();
 
 	if (!success) {
 		return m.trigger<transition::error>(this);
 	}
 
-	if (_parsing_args.empty()) {
+	if (_parser_args.empty()) {
 		return m.trigger<transition::exit>(this);
 	}
 
@@ -744,11 +612,11 @@ void get_opt<CharT, PrintfT>::on_arg0_enter(fsm_t& m) {
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_parse_next_enter(fsm_t& m) {
 
-	if (_parsing_args.empty()) {
+	if (_parser_args.empty()) {
 		return m.trigger<transition::exit>(this);
 	}
 
-	string& first = _parsing_args.front();
+	string& first = _parser_args.front();
 
 	// help
 	if (first == FEA_ML("-h") || first == FEA_ML("--help")
@@ -797,21 +665,22 @@ void get_opt<CharT, PrintfT>::on_parse_raw(fsm_t& m) {
 
 	// We've parsed all raw options, user provided options are curropted.
 	if (next_rawopt == _raw_opts.end()) {
-		_error_message = FEA_ML("Could not parse : '") + _parsing_args.front()
+		_error_message = FEA_ML("Could not parse : '") + _parser_args.front()
 				+ FEA_ML("'\n");
 		_error_message += FEA_ML("All arguments have previously been parsed.");
 		return m.template trigger<transition::error>(this);
 	}
 
-	bool success = next_rawopt->one_arg_func(std::move(_parsing_args.front()));
+	bool success = next_rawopt->one_arg_func(std::move(_parser_args.front()));
+	next_rawopt->has_been_parsed = true;
 
 	if (!success) {
-		_error_message = FEA_ML("'") + _parsing_args.front()
+		_error_message = FEA_ML("'") + _parser_args.front()
 				+ FEA_ML("' problem parsing argument.");
 		return m.template trigger<transition::error>(this);
 	}
 
-	_parsing_args.pop_front();
+	_parser_args.pop_front();
 
 	return m.template trigger<transition::parse_next>(this);
 }
@@ -862,7 +731,7 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 
 		for (const string& s : str_vec) {
 			// Get a utf32 string to work without brain damage.
-			std::u32string utf32 = detail::any_to_utf32(s);
+			std::u32string utf32 = any_to_utf32(s);
 			// Gets the actual lexical size of the string. We include the
 			// indentation width that comes before.
 			size_t real_size = utf32.size() + indendation;
@@ -878,8 +747,8 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 					size_t space_pos = new_str.find_last_of(U' ');
 
 					// Pushback the string, split nicely at the last word.
-					out_str_vec.push_back(detail::utf32_to_any<CharT>(
-							new_str.substr(0, space_pos)));
+					out_str_vec.push_back(
+							utf32_to_any<CharT>(new_str.substr(0, space_pos)));
 
 					// Don't forget to ignore the space for the next sentence.
 					pos += space_pos + 1;
@@ -887,10 +756,10 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 				// We still have 1 leftover split at the end.
 				std::u32string new_str
 						= utf32.substr(pos, _output_width - indendation);
-				out_str_vec.push_back(detail::utf32_to_any<CharT>(new_str));
+				out_str_vec.push_back(utf32_to_any<CharT>(new_str));
 
 			} else {
-				out_str_vec.push_back(std::move(s));
+				out_str_vec.push_back(s);
 			}
 		}
 
@@ -898,11 +767,11 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 		// Finally, print everything at the right indentation.
 		for (size_t i = 0; i < out_str_vec.size(); ++i) {
 			const string& substr = out_str_vec[i];
-			print(FEA_ML("%s\n"), substr.c_str());
+			print(substr + FEA_ML("\n"));
 
 			// Print the indentation for the next string if there is one.
 			if (i + 1 < out_str_vec.size()) {
-				print(FEA_ML("%*s"), int(indendation), FEA_ML(""));
+				print(string(indendation, FEA_CH(' ')));
 			}
 		}
 	};
@@ -931,8 +800,8 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 			out_str += raw_opt.long_name;
 		}
 
-		print(FEA_ML("\nUsage: %s%s [options]\n\n"), _args.front().c_str(),
-				out_str.c_str());
+		print(FEA_ML("\nUsage: ") + _all_args.front() + out_str
+				+ FEA_ML(" [options]\n\n"));
 	}
 
 	// Raw Options
@@ -951,12 +820,13 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 		// Now, print the raw option help.
 		for (const user_option<CharT> raw_opt : _raw_opts) {
 			// Print indentation.
-			print(FEA_ML("%*s"), int(indent), FEA_ML(""));
+			print(string(indent, FEA_CH(' ')));
 
 			// Print the help, and use max_name_width so each help line is
 			// properly aligned.
-			print(FEA_ML("%-*s"), int(max_name_width),
-					raw_opt.long_name.c_str());
+			string out = raw_opt.long_name;
+			out.resize(max_name_width, FEA_CH(' '));
+			print(out);
 
 			// Print the help message. This will split the message if it is too
 			// wide, or if the user used '\n' in his message.
@@ -1004,7 +874,7 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 			const user_option<CharT>& opt = opt_p.second;
 
 			// Print indentation.
-			print(FEA_ML("%*s"), int(indent), FEA_ML(""));
+			print(string(indent, FEA_CH(' ')));
 
 			// If the option has a shortarg, print that.
 			if (opt.short_name != FEA_CH('\0')) {
@@ -1012,10 +882,11 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 				shortopt_str += FEA_ML("-");
 				shortopt_str += opt.short_name;
 				shortopt_str += FEA_ML(",");
-				print(FEA_ML("%-*s"), int(shortopt_width),
-						shortopt_str.c_str());
+				string out = shortopt_str;
+				out.resize(shortopt_width, FEA_CH(' '));
+				print(out);
 			} else {
-				print(FEA_ML("%*s"), int(shortopt_width), FEA_ML(""));
+				print(string(shortopt_width, FEA_CH(' ')));
 			}
 
 			// Build the longopt string.
@@ -1037,14 +908,16 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 			}
 
 			// Print the longopt string.
-			print(FEA_ML("%-*s"), int(longopt_width), longopt_str.c_str());
+			string out = longopt_str;
+			out.resize(longopt_width, FEA_CH(' '));
+			print(out);
 
 			// If it was bigger than the max width, the description will be
 			// printed on the next line, indented up to the right position.
 			if (longopt_str.size() >= longopt_width) {
 				print(FEA_ML("\n"));
-				print(FEA_ML("%*s"), int(longopt_width + shortopt_total_width),
-						FEA_ML(""));
+				print(string(
+						longopt_width + shortopt_total_width, FEA_CH(' ')));
 			}
 
 			// Print the help message, indents appropriately and splits into
@@ -1057,13 +930,25 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 			longopt_width = 2 + 4 + longopt_space;
 
 		// Print the help command help.
-		print(FEA_ML("%*s%-*s%-*s%s\n"), int(indent), FEA_ML(""),
-				int(shortopt_width), FEA_ML("-h,"), int(longopt_width),
-				FEA_ML("--help"), FEA_ML("Print this help\n"));
+		string short_help = FEA_ML("-h,");
+		short_help.resize(shortopt_width, FEA_CH(' '));
+
+		string long_help = FEA_ML("--help");
+		long_help.resize(longopt_width, FEA_CH(' '));
+
+		print(string(indent, FEA_CH(' ')) + short_help + long_help
+				+ FEA_ML("Print this help\n"));
 
 		// Print user outro.
 		if (!_help_outro.empty()) {
-			print(FEA_ML("\n%s\n"), _help_outro.c_str());
+			print(FEA_ML("\n") + _help_outro + FEA_ML("\n"));
+		}
+
+		// Finally, if the user had passed in a callback to be notified when
+		// help was called, call that.
+		if (_help_func) {
+			_help_func(std::move(_parser_args.front()));
+			_parser_args.pop_front();
 		}
 	}
 } // namespace fea
