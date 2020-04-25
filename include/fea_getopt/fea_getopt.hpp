@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fea_state_machines/fsm.hpp>
 #include <fea_utils/string.hpp>
 #include <functional>
+#include <map>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -319,8 +320,7 @@ private:
 	std::unique_ptr<fsm_t> _machine = make_machine();
 
 	std::unordered_map<CharT, string> _short_opt_to_long_opt;
-	std::unordered_map<string, detail::user_option<CharT>>
-			_long_opt_to_user_opt;
+	std::map<string, detail::user_option<CharT>> _long_opt_to_user_opt;
 	std::vector<detail::user_option<CharT>> _raw_opts;
 
 	std::function<bool(string&&)> _arg0_func;
@@ -348,13 +348,6 @@ get_opt<CharT, PrintfT>::get_opt(
 		PrintfT printf_func, size_t output_width /* = 120*/)
 		: _print_func(printf_func)
 		, _output_width(output_width) {
-
-	// Reserve h, help, '?'
-	_short_opt_to_long_opt.insert({ FEA_CH('h'), FEA_ML("") });
-	_short_opt_to_long_opt.insert({ FEA_CH('?'), FEA_ML("") });
-
-	_long_opt_to_user_opt.insert({ FEA_ML("help"), {} });
-	_long_opt_to_user_opt.insert({ FEA_ML("?"), {} });
 }
 
 template <class CharT, class PrintfT>
@@ -603,6 +596,26 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		ret->add_state<state::parse_longarg>(std::move(long_state));
 	}
 
+	// short
+	{
+		state_t short_state;
+		short_state.add_transition<transition::error, state::end>();
+		short_state
+				.add_transition<transition::do_longarg, state::parse_longarg>();
+		short_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_shortopt);
+		ret->add_state<state::parse_shortarg>(std::move(short_state));
+	}
+
+	// concat
+	{
+		state_t concat_state;
+		concat_state.add_transition<transition::error, state::end>();
+		concat_state
+				.add_transition<transition::do_longarg, state::parse_longarg>();
+		concat_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_concat);
+		ret->add_state<state::parse_concat>(std::move(concat_state));
+	}
+
 	// end
 	{
 		state_t end_state;
@@ -761,21 +774,10 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 		string arg = _parser_args.front();
 		_parser_args.pop_front();
 
-		// Are the args enclosed in quotes?
-		if (fea::starts_with(arg, FEA_ML("\""))
-				|| fea::starts_with(arg, FEA_ML("'"))) {
-
-			if (!fea::ends_with(arg, FEA_ML("\""))
-					&& !fea::ends_with(arg, FEA_ML("'"))) {
-				print(FEA_ML("Could not parse : '") + opt_str + FEA_ML("'\n"));
-				print(FEA_ML("Unclosed quote.\n"));
-				return m.trigger<transition::error>(this);
-			}
-
+		// Were the args enclosed in quotes?
+		if (arg.find(FEA_CH(' ')) != string::npos) {
 			args = fea::split(arg, FEA_CH(' '));
-
 			success = user_opt.multi_arg_func(std::move(args));
-
 		} else {
 			// Gather everything up till the end or the next '-'
 			args.push_back(std::move(arg));
@@ -803,15 +805,58 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 		return m.template trigger<transition::error>(this);
 	}
 
-	return m.trigger<transition::parse_next>(this);
+	return m.template trigger<transition::parse_next>(this);
 }
 
 template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::on_parse_shortopt(fsm_t&) {
+void get_opt<CharT, PrintfT>::on_parse_shortopt(fsm_t& m) {
+	assert(_parser_args.front().size() == 2);
+
+	string arg = _parser_args.front();
+	_parser_args.pop_front();
+
+	size_t new_beg = arg.find_first_not_of(FEA_ML("-"));
+	arg = arg.substr(new_beg);
+
+	assert(arg.size() == 1);
+
+	CharT short_opt = arg[0];
+
+	if (_short_opt_to_long_opt.count(short_opt) == 0) {
+		print(FEA_ML("Could not parse : '") + arg + FEA_ML("'\n"));
+		print(FEA_ML("Option not recognized.\n"));
+		return m.template trigger<transition::error>(this);
+	}
+
+	_parser_args.push_front(
+			FEA_ML("--") + _short_opt_to_long_opt.at(short_opt));
+	return m.template trigger<transition::do_longarg>(this);
 }
 
 template <class CharT, class PrintfT>
-void get_opt<CharT, PrintfT>::on_parse_concat(fsm_t&) {
+void get_opt<CharT, PrintfT>::on_parse_concat(fsm_t& m) {
+	string arg = _parser_args.front();
+	_parser_args.pop_front();
+
+	size_t new_beg = arg.find_first_not_of(FEA_ML("-"));
+	arg = arg.substr(new_beg);
+
+	std::vector<string> long_args;
+	for (CharT short_opt : arg) {
+		if (_short_opt_to_long_opt.count(short_opt) == 0) {
+			print(FEA_ML("Could not parse : '") + string{ short_opt }
+					+ FEA_ML("'\n"));
+			print(FEA_ML("Option not recognized.\n"));
+			return m.template trigger<transition::error>(this);
+		}
+
+		long_args.push_back(
+				FEA_ML("--") + _short_opt_to_long_opt.at(short_opt));
+	}
+
+	_parser_args.insert(
+			_parser_args.begin(), long_args.begin(), long_args.end());
+	return m.template trigger<transition::do_longarg>(this);
 }
 
 template <class CharT, class PrintfT>

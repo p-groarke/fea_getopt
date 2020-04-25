@@ -16,6 +16,7 @@ std::string last_printed_string;
 std::wstring last_printed_wstring;
 
 constexpr bool do_console_print = false;
+constexpr bool print_test_case = true;
 
 int print_to_string(const std::string& message) {
 	last_printed_string = message;
@@ -55,7 +56,7 @@ int print_to_string32(const std::u32string& message) {
 
 template <class CharT>
 struct option_tester {
-	using string = std::basic_string<CharT, std::char_traits<CharT>,
+	using string_t = std::basic_string<CharT, std::char_traits<CharT>,
 			std::allocator<CharT>>;
 
 	enum class opt_type {
@@ -67,15 +68,18 @@ struct option_tester {
 		optional,
 		required,
 		multi,
+		concat,
 		count,
 	};
 
 	struct test_case {
 		opt_type type;
 		bool expected = false;
-		string passed_in_data;
+		string_t option;
+		std::vector<string_t> arguments;
+		string_t expected_data;
 		bool was_recieved = false;
-		string recieved_data;
+		string_t recieved_data;
 	};
 
 
@@ -85,20 +89,64 @@ struct option_tester {
 				opt_type::arg0,
 				true,
 				FEA_ML("tool.exe"),
+				{},
+				FEA_ML("tool.exe"),
 				false,
 				FEA_ML(""),
 		});
 	}
 
-	void add_test(opt_type test_type, string&& passed_in_str) {
+	void add_test(opt_type test_type, string_t&& option_and_expected) {
 		assert(test_type != opt_type::count);
 		_data[size_t(test_type)].push_back({
 				test_type,
 				true,
-				std::move(passed_in_str),
+				option_and_expected,
+				{},
+				std::move(option_and_expected),
 				false,
 				FEA_ML(""),
 		});
+	}
+	void add_test(
+			opt_type test_type, string_t&& option, string_t&& expected_data) {
+		assert(test_type != opt_type::count);
+		_data[size_t(test_type)].push_back({
+				test_type,
+				true,
+				std::move(option),
+				{},
+				std::move(expected_data),
+				false,
+				FEA_ML(""),
+		});
+	}
+	void add_test(opt_type test_type, string_t&& option,
+			std::initializer_list<string_t>&& arguments,
+			string_t&& expected_data) {
+		assert(test_type != opt_type::count);
+		_data[size_t(test_type)].push_back({
+				test_type,
+				true,
+				std::move(option),
+				std::move(arguments),
+				std::move(expected_data),
+				false,
+				FEA_ML(""),
+		});
+	}
+
+	void merge(option_tester<CharT>&& other) {
+		for (size_t i = 0; i < _data.size(); ++i) {
+			opt_type o = opt_type(i);
+			if (o == opt_type::arg0) {
+				continue;
+			}
+
+			_data[i].insert(_data[i].end(),
+					std::make_move_iterator(other._data[i].begin()),
+					std::make_move_iterator(other._data[i].end()));
+		}
 	}
 
 	void populate() {
@@ -106,13 +154,19 @@ struct option_tester {
 
 		// Only supports 1 arg0.
 		assert(_data[size_t(opt_type::arg0)].size() == 1);
-		_expected_data.push_back(_data[size_t(opt_type::arg0)].back());
+		_test_cases.push_back(_data[size_t(opt_type::arg0)].back());
+
+		// Add raw args.
+		_test_cases.insert(_test_cases.end(),
+				_data[size_t(opt_type::raw)].begin(),
+				_data[size_t(opt_type::raw)].end());
 
 		// Gather all the options to be randomized.
+		// Except arg0 and raw args, which come first.
 		std::vector<test_case> temp;
 		for (size_t i = 0; i < size_t(opt_type::count); ++i) {
 			opt_type o = opt_type(i);
-			if (o == opt_type::arg0) {
+			if (o == opt_type::arg0 || o == opt_type::raw) {
 				continue;
 			}
 
@@ -138,27 +192,52 @@ struct option_tester {
 		}
 
 		// Finally, generate the test scenario.
-		_expected_data.insert(_expected_data.end(), temp.begin(), temp.end());
+		_test_cases.insert(_test_cases.end(), temp.begin(), temp.end());
 	}
 
 	std::vector<const CharT*> get_argv() const {
 		// Randomize options except for arg0.
 		std::vector<const CharT*> ret;
 
-		for (const test_case& t : _expected_data) {
-			ret.push_back(t.passed_in_data.c_str());
+		for (const test_case& t : _test_cases) {
+			ret.push_back(t.option.c_str());
+
+			for (const string_t& arg : t.arguments) {
+				ret.push_back(arg.c_str());
+			}
 		}
+
+		if constexpr (print_test_case) {
+			// Just convert everything to utf8
+			std::string print_str;
+			for (const CharT* cstr : ret) {
+				print_str += fea::any_to_utf8(string_t{ cstr }) + " ";
+			}
+
+			if (!print_str.empty()) {
+				// trailing white space
+				print_str.pop_back();
+			}
+
+			printf("testing command : %s\n", print_str.c_str());
+		}
+
 		return ret;
 	}
 
-	void recieved(opt_type test_type, string&& recieved_str) {
+	void recieved(opt_type test_type, string_t&& recieved_str) {
 		// Find first not set.
-		auto it = std::find_if(_expected_data.begin(), _expected_data.end(),
+		auto it = std::find_if(_test_cases.begin(), _test_cases.end(),
 				[&](const test_case& t) {
-					return t.type == test_type && t.was_recieved == false;
+					if (test_type == opt_type::flag
+							&& t.type == opt_type::concat) {
+						return true;
+					} else {
+						return t.type == test_type && t.was_recieved == false;
+					}
 				});
 
-		if (it == _expected_data.end()) {
+		if (it == _test_cases.end()) {
 			throw std::runtime_error{
 				"test failed, recieved extra option that wasn't expected"
 			};
@@ -166,26 +245,35 @@ struct option_tester {
 		}
 
 		it->was_recieved = true;
-		it->recieved_data = std::move(recieved_str);
+
+		if (it->type == opt_type::concat) {
+			it->recieved_data += std::move(recieved_str) + FEA_ML(" ");
+		} else {
+			it->recieved_data = std::move(recieved_str);
+		}
 	}
 
 	void testit() const {
-		for (const test_case& t : _expected_data) {
+		for (const test_case& t : _test_cases) {
 			EXPECT_EQ(t.was_recieved, t.expected);
-			if (t.expected) {
-				if (t.recieved_data != FEA_ML("[none]")) {
-					EXPECT_EQ(t.recieved_data, t.passed_in_data);
-				}
-			} else {
+			if (!t.expected) {
 				EXPECT_EQ(t.recieved_data, FEA_ML(""));
+				continue;
 			}
+
+			string_t test_str = t.recieved_data;
+
+			if (!test_str.empty() && fea::ends_with(test_str, FEA_ML(" "))) {
+				test_str.pop_back();
+			}
+			EXPECT_EQ(test_str, t.expected_data);
 		}
 	}
 
 private:
 	std::array<std::vector<test_case>, size_t(opt_type::count)> _data;
 
-	std::vector<test_case> _expected_data;
+	std::vector<test_case> _test_cases;
 };
 
 
@@ -214,6 +302,16 @@ template <class CharT>
 struct test_scenario {
 	using opt_test = option_tester<CharT>;
 
+	void merge(test_scenario<CharT>&& other) {
+		for (size_t i = 0; i < other.tests.size(); ++i) {
+			if (i >= tests.size()) {
+				tests.push_back(std::move(other.tests[i]));
+			} else {
+				tests[i].merge(std::move(other.tests[i]));
+			}
+		}
+	}
+
 	void fuzzit(fea::get_opt<CharT>& opt) {
 		for (opt_test& test : tests) {
 			test.populate();
@@ -241,23 +339,23 @@ test_scenario<CharT> test_all_help() {
 
 	ret.tests.push_back({});
 	ret.tests.back().add_test(
-			option_tester<CharT>::opt_type::help, FEA_ML("-h"));
+			option_tester<CharT>::opt_type::help, FEA_ML("-h"), FEA_ML(""));
 
 	ret.tests.push_back({});
 	ret.tests.back().add_test(
-			option_tester<CharT>::opt_type::help, FEA_ML("--help"));
+			option_tester<CharT>::opt_type::help, FEA_ML("--help"), FEA_ML(""));
 
 	ret.tests.push_back({});
 	ret.tests.back().add_test(
-			option_tester<CharT>::opt_type::help, FEA_ML("/h"));
+			option_tester<CharT>::opt_type::help, FEA_ML("/h"), FEA_ML(""));
 
 	ret.tests.push_back({});
 	ret.tests.back().add_test(
-			option_tester<CharT>::opt_type::help, FEA_ML("/help"));
+			option_tester<CharT>::opt_type::help, FEA_ML("/help"), FEA_ML(""));
 
 	ret.tests.push_back({});
 	ret.tests.back().add_test(
-			option_tester<CharT>::opt_type::help, FEA_ML("/?"));
+			option_tester<CharT>::opt_type::help, FEA_ML("/?"), FEA_ML(""));
 
 	return ret;
 }
@@ -285,12 +383,12 @@ test_scenario<CharT> test_raw() {
 }
 
 template <class CharT>
-test_scenario<CharT> test_flags() {
+test_scenario<CharT> test_flags_and_concat() {
 	test_scenario<CharT> ret;
 
 	ret.tests.push_back({});
 	ret.tests.back().add_test(
-			option_tester<CharT>::opt_type::flag, FEA_ML("--flag1"));
+			option_tester<CharT>::opt_type::flag, FEA_ML("-f"));
 
 	ret.tests.push_back({});
 	ret.tests.back().add_test(
@@ -310,7 +408,7 @@ test_scenario<CharT> test_flags() {
 
 	ret.tests.push_back({});
 	ret.tests.back().add_test(
-			option_tester<CharT>::opt_type::flag, FEA_ML("--flag1"));
+			option_tester<CharT>::opt_type::flag, FEA_ML("-f"));
 	ret.tests.back().add_test(
 			option_tester<CharT>::opt_type::flag, FEA_ML("--flag2"));
 	ret.tests.back().add_test(
@@ -320,12 +418,315 @@ test_scenario<CharT> test_flags() {
 	ret.tests.back().add_test(
 			option_tester<CharT>::opt_type::flag, FEA_ML("--flag5"));
 	ret.tests.back().add_test(
-			option_tester<CharT>::opt_type::help, FEA_ML("--help"));
+			option_tester<CharT>::opt_type::help, FEA_ML("--help"), FEA_ML(""));
 
 	ret.tests.push_back(ret.tests.back());
 	ret.tests.push_back(ret.tests.back());
 	ret.tests.push_back(ret.tests.back());
 	ret.tests.push_back(ret.tests.back());
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::concat,
+			FEA_ML("-faAbB"), FEA_ML("-f --flag2 --flag3 --flag4 --flag5"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::concat,
+			FEA_ML("-fab"), FEA_ML("-f --flag2 --flag4"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::concat,
+			FEA_ML("-fAB"), FEA_ML("-f --flag3 --flag5"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::concat,
+			FEA_ML("-Bb"), FEA_ML("--flag5 --flag4"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::concat,
+			FEA_ML("-abAB"), FEA_ML("--flag2 --flag4 --flag3 --flag5"));
+
+	return ret;
+}
+
+template <class CharT>
+test_scenario<CharT> test_default_arg() {
+	test_scenario<CharT> ret;
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default1"), FEA_ML("d_val1"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("-d"), FEA_ML("d_val1"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default2"), FEA_ML("d_val2"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default1"), { FEA_ML("someval") }, FEA_ML("someval"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("-d"), { FEA_ML("someval2") }, FEA_ML("someval2"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default2"), { FEA_ML("someval3") }, FEA_ML("someval3"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default1"), FEA_ML("d_val1"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default2"), FEA_ML("d_val2"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default1"), { FEA_ML("someval1") }, FEA_ML("someval1"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default2"), FEA_ML("d_val2"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default2"), FEA_ML("d_val2"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default1"), { FEA_ML("someval1") }, FEA_ML("someval1"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default2"), { FEA_ML("someval2") }, FEA_ML("someval2"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default1"), { FEA_ML("someval1") }, FEA_ML("someval1"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default1"), { FEA_ML("someval1") }, FEA_ML("someval1"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::default_arg,
+			FEA_ML("--default2"), { FEA_ML("someval2") }, FEA_ML("someval2"));
+
+	return ret;
+}
+
+template <class CharT>
+test_scenario<CharT> test_optional_arg() {
+	test_scenario<CharT> ret;
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::optional,
+			FEA_ML("--optional1"), { FEA_ML("opt") }, FEA_ML("opt"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::optional,
+			FEA_ML("--optional1"), FEA_ML(""));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(
+			option_tester<CharT>::opt_type::optional, FEA_ML("-o"), FEA_ML(""));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::optional,
+			FEA_ML("-o"), { FEA_ML("optshort") }, FEA_ML("optshort"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::optional,
+			FEA_ML("-o"), { FEA_ML("opt1") }, FEA_ML("opt1"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::optional,
+			FEA_ML("--optional2"), { FEA_ML("opt2") }, FEA_ML("opt2"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::optional,
+			FEA_ML("--optional3"), FEA_ML(""));
+
+	ret.tests.push_back(ret.tests.back());
+	ret.tests.push_back(ret.tests.back());
+	ret.tests.push_back(ret.tests.back());
+	ret.tests.push_back(ret.tests.back());
+	return ret;
+}
+
+template <class CharT>
+test_scenario<CharT> test_required_arg() {
+	test_scenario<CharT> ret;
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::required,
+			FEA_ML("--required1"), { FEA_ML("req") }, FEA_ML("req"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::required,
+			FEA_ML("-r"), { FEA_ML("reqshort") }, FEA_ML("reqshort"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::required,
+			FEA_ML("--required2"), { FEA_ML("req2") }, FEA_ML("req2"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::required,
+			FEA_ML("--required3"), { FEA_ML("req3") }, FEA_ML("req3"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::required,
+			FEA_ML("-r"), { FEA_ML("reqshort2") }, FEA_ML("reqshort2"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::required,
+			FEA_ML("--required2"), { FEA_ML("req2-2") }, FEA_ML("req2-2"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::required,
+			FEA_ML("--required3"), { FEA_ML("req3-3") }, FEA_ML("req3-3"));
+
+	ret.tests.push_back(ret.tests.back());
+	ret.tests.push_back(ret.tests.back());
+	ret.tests.push_back(ret.tests.back());
+	ret.tests.push_back(ret.tests.back());
+	return ret;
+}
+
+template <class CharT>
+test_scenario<CharT> test_multi_arg() {
+	test_scenario<CharT> ret;
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi1"), { FEA_ML("a") }, FEA_ML("a"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi1"), { FEA_ML("a2 b2 c2 d2") },
+			FEA_ML("a2 b2 c2 d2"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi1"),
+			{ FEA_ML("a3"), FEA_ML("b3"), FEA_ML("c3"), FEA_ML("d3") },
+			FEA_ML("a3 b3 c3 d3"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("-m"), { FEA_ML("a4") }, FEA_ML("a4"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("-m"), { FEA_ML("a5 b5 c5 d5") }, FEA_ML("a5 b5 c5 d5"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("-m"),
+			{ FEA_ML("a6"), FEA_ML("b6"), FEA_ML("c6"), FEA_ML("d6") },
+			FEA_ML("a6 b6 c6 d6"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"), { FEA_ML("a7"), FEA_ML("b7"), FEA_ML("c7") },
+			FEA_ML("a7 b7 c7"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"),
+			{ FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+					 "t8 u8 v8 w8 x8 y8 z8") },
+			FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+				   "t8 u8 v8 w8 x8 y8 z8"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"),
+			{ FEA_ML("a8"), FEA_ML("b8"), FEA_ML("c8"), FEA_ML("d8"),
+					FEA_ML("e8"), FEA_ML("f8"), FEA_ML("g8"), FEA_ML("h8"),
+					FEA_ML("i8"), FEA_ML("j8"), FEA_ML("k8"), FEA_ML("l8"),
+					FEA_ML("m8"), FEA_ML("n8"), FEA_ML("o8"), FEA_ML("p8"),
+					FEA_ML("q8"), FEA_ML("r8"), FEA_ML("s8"), FEA_ML("t8"),
+					FEA_ML("u8"), FEA_ML("v8"), FEA_ML("w8"), FEA_ML("x8"),
+					FEA_ML("y8"), FEA_ML("z8") },
+			FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+				   "t8 u8 v8 w8 x8 y8 z8"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi1"), { FEA_ML("a") }, FEA_ML("a"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"), { FEA_ML("a7"), FEA_ML("b7"), FEA_ML("c7") },
+			FEA_ML("a7 b7 c7"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi1"), { FEA_ML("a2 b2 c2 d2") },
+			FEA_ML("a2 b2 c2 d2"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"),
+			{ FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+					 "t8 u8 v8 w8 x8 y8 z8") },
+			FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+				   "t8 u8 v8 w8 x8 y8 z8"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi1"),
+			{ FEA_ML("a3"), FEA_ML("b3"), FEA_ML("c3"), FEA_ML("d3") },
+			FEA_ML("a3 b3 c3 d3"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"),
+			{ FEA_ML("a8"), FEA_ML("b8"), FEA_ML("c8"), FEA_ML("d8"),
+					FEA_ML("e8"), FEA_ML("f8"), FEA_ML("g8"), FEA_ML("h8"),
+					FEA_ML("i8"), FEA_ML("j8"), FEA_ML("k8"), FEA_ML("l8"),
+					FEA_ML("m8"), FEA_ML("n8"), FEA_ML("o8"), FEA_ML("p8"),
+					FEA_ML("q8"), FEA_ML("r8"), FEA_ML("s8"), FEA_ML("t8"),
+					FEA_ML("u8"), FEA_ML("v8"), FEA_ML("w8"), FEA_ML("x8"),
+					FEA_ML("y8"), FEA_ML("z8") },
+			FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+				   "t8 u8 v8 w8 x8 y8 z8"));
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("-m"), { FEA_ML("a4") }, FEA_ML("a4"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"), { FEA_ML("a7"), FEA_ML("b7"), FEA_ML("c7") },
+			FEA_ML("a7 b7 c7"));
+
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("-m"), { FEA_ML("a5 b5 c5 d5") }, FEA_ML("a5 b5 c5 d5"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"),
+			{ FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+					 "t8 u8 v8 w8 x8 y8 z8") },
+			FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+				   "t8 u8 v8 w8 x8 y8 z8"));
+
+
+	ret.tests.push_back({});
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("-m"),
+			{ FEA_ML("a6"), FEA_ML("b6"), FEA_ML("c6"), FEA_ML("d6") },
+			FEA_ML("a6 b6 c6 d6"));
+	ret.tests.back().add_test(option_tester<CharT>::opt_type::multi,
+			FEA_ML("--multi2"),
+			{ FEA_ML("a8"), FEA_ML("b8"), FEA_ML("c8"), FEA_ML("d8"),
+					FEA_ML("e8"), FEA_ML("f8"), FEA_ML("g8"), FEA_ML("h8"),
+					FEA_ML("i8"), FEA_ML("j8"), FEA_ML("k8"), FEA_ML("l8"),
+					FEA_ML("m8"), FEA_ML("n8"), FEA_ML("o8"), FEA_ML("p8"),
+					FEA_ML("q8"), FEA_ML("r8"), FEA_ML("s8"), FEA_ML("t8"),
+					FEA_ML("u8"), FEA_ML("v8"), FEA_ML("w8"), FEA_ML("x8"),
+					FEA_ML("y8"), FEA_ML("z8") },
+			FEA_ML("a8 b8 c8 d8 e8 f8 g8 h8 i8 j8 k8 l8 m8 n8 o8 p8 q8 r8 s8 "
+				   "t8 u8 v8 w8 x8 y8 z8"));
+
+	return ret;
+}
+
+template <class CharT>
+std::vector<test_scenario<CharT>> one_test_to_rule_them_all(
+		size_t permutations = 50) {
+	std::vector<test_scenario<CharT>> ret;
+
+	for (size_t i = 0; i < permutations; ++i) {
+		test_scenario<CharT> scenario;
+		scenario.merge(test_raw<CharT>());
+		scenario.merge(test_flags_and_concat<CharT>());
+		scenario.merge(test_default_arg<CharT>());
+		scenario.merge(test_optional_arg<CharT>());
+		scenario.merge(test_required_arg<CharT>());
+		scenario.merge(test_multi_arg<CharT>());
+		ret.push_back(scenario);
+	}
 
 	return ret;
 }
@@ -346,7 +747,7 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 	opts.add_help_callback([]() {
 		using opt_test = option_tester<CharT>;
 		opt_test& t = get_global_tester<CharT>();
-		t.recieved(opt_test::opt_type::help, FEA_ML("[none]"));
+		t.recieved(opt_test::opt_type::help, FEA_ML(""));
 	});
 
 	opts.add_raw_option(
@@ -395,7 +796,7 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 			[]() {
 				using opt_test = option_tester<CharT>;
 				opt_test& t = get_global_tester<CharT>();
-				t.recieved(opt_test::opt_type::flag, { FEA_ML("--flag1") });
+				t.recieved(opt_test::opt_type::flag, { FEA_ML("-f") });
 				return true;
 			},
 			FEA_ML("A simple flag."), FEA_CH('f'));
@@ -408,7 +809,7 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 				t.recieved(opt_test::opt_type::flag, { FEA_ML("--flag2") });
 				return true;
 			},
-			FEA_ML("A simple flag."));
+			FEA_ML("A simple flag."), FEA_CH('a'));
 
 	opts.add_flag_option(
 			FEA_ML("flag3"),
@@ -418,7 +819,7 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 				t.recieved(opt_test::opt_type::flag, { FEA_ML("--flag3") });
 				return true;
 			},
-			FEA_ML("A simple flag."));
+			FEA_ML("A simple flag."), FEA_CH('A'));
 
 	opts.add_flag_option(
 			FEA_ML("flag4"),
@@ -428,7 +829,7 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 				t.recieved(opt_test::opt_type::flag, { FEA_ML("--flag4") });
 				return true;
 			},
-			FEA_ML("A simple flag."));
+			FEA_ML("A simple flag."), FEA_CH('b'));
 
 	opts.add_flag_option(
 			FEA_ML("flag5"),
@@ -438,18 +839,19 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 				t.recieved(opt_test::opt_type::flag, { FEA_ML("--flag5") });
 				return true;
 			},
-			FEA_ML("A simple flag."));
+			FEA_ML("A simple flag."), FEA_CH('B'));
 
 	opts.add_default_arg_option(
-			FEA_ML("default_arg"),
-			[](string_t&&) {
+			FEA_ML("default1"),
+			[](string_t&& str) {
 				static_assert(
 						std::is_same_v<typename string_t::value_type, CharT>,
 						"unit test failed : Called with string must be same "
 						"type as getopt.");
 
-				// TODO : test
-
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				t.recieved(opt_test::opt_type::default_arg, std::move(str));
 				return true;
 			},
 			FEA_ML("Some looooooooong string that should be cut off by the "
@@ -461,10 +863,115 @@ void add_options(fea::get_opt<CharT, PrintFunc>& opts) {
 				   "start at a newline, but still be split appropriately if I "
 				   "am too long because that would be unfortunate wouldn't it "
 				   "now."),
-			FEA_ML("d_val"), FEA_CH('d'));
+			FEA_ML("d_val1"), FEA_CH('d'));
+
+	opts.add_default_arg_option(
+			FEA_ML("default2"),
+			[](string_t&& str) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				t.recieved(opt_test::opt_type::default_arg, std::move(str));
+				return true;
+			},
+			FEA_ML("A default option."), FEA_ML("d_val2"));
+	opts.add_optional_arg_option(
+			FEA_ML("optional1"),
+			[](string_t&& str) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				t.recieved(opt_test::opt_type::optional, std::move(str));
+				return true;
+			},
+			FEA_ML("An option with optional arg."), FEA_CH('o'));
+	opts.add_optional_arg_option(
+			FEA_ML("optional2"),
+			[](string_t&& str) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				t.recieved(opt_test::opt_type::optional, std::move(str));
+				return true;
+			},
+			FEA_ML("An option with optional arg."));
+	opts.add_optional_arg_option(
+			FEA_ML("optional3"),
+			[](string_t&& str) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				t.recieved(opt_test::opt_type::optional, std::move(str));
+				return true;
+			},
+			FEA_ML("An option with optional arg."));
+	opts.add_required_arg_option(
+			FEA_ML("required1"),
+			[](string_t&& str) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				t.recieved(opt_test::opt_type::required, std::move(str));
+				return true;
+			},
+			FEA_ML("An option with a required arg."), FEA_CH('r'));
+	opts.add_required_arg_option(
+			FEA_ML("required2"),
+			[](string_t&& str) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				t.recieved(opt_test::opt_type::required, std::move(str));
+				return true;
+			},
+			FEA_ML("An option with a required arg."));
+	opts.add_required_arg_option(
+			FEA_ML("required3"),
+			[](string_t&& str) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				t.recieved(opt_test::opt_type::required, std::move(str));
+				return true;
+			},
+			FEA_ML("An option with a required arg."));
+	opts.add_multi_arg_option(
+			FEA_ML("multi1"),
+			[](std::vector<string_t>&& vec) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+
+				string_t recieved;
+
+				for (const string_t& str : vec) {
+					recieved += str + FEA_ML(" ");
+				}
+
+				if (!recieved.empty()) {
+					// Remove trailing space
+					recieved.pop_back();
+				}
+
+				t.recieved(opt_test::opt_type::multi, std::move(recieved));
+				return true;
+			},
+			FEA_ML("An option wich accepts multiple args."), FEA_CH('m'));
+	opts.add_multi_arg_option(
+			FEA_ML("multi2"),
+			[](std::vector<string_t>&& vec) {
+				using opt_test = option_tester<CharT>;
+				opt_test& t = get_global_tester<CharT>();
+				string_t recieved;
+
+				for (const string_t& str : vec) {
+					recieved += str + FEA_ML(" ");
+				}
+
+				if (!recieved.empty()) {
+					// Remove trailing space
+					recieved.pop_back();
+				}
+
+				t.recieved(opt_test::opt_type::multi, std::move(recieved));
+				return true;
+			},
+			FEA_ML("An option wich accepts multiple args."));
 }
 
-TEST(getopt, printing) {
+TEST(fea_getopt, printing) {
 
 #if defined(_MSC_VER)
 	SetConsoleCP(CP_UTF8);
@@ -503,7 +1010,7 @@ TEST(getopt, printing) {
 	}
 }
 
-TEST(getopt, basics) {
+TEST(fea_getopt, basics) {
 
 	{
 		using mchar_t = char;
@@ -520,8 +1027,31 @@ TEST(getopt, basics) {
 			scenario.fuzzit(opt);
 		}
 		{
-			test_scenario<mchar_t> scenario = test_flags<mchar_t>();
+			test_scenario<mchar_t> scenario = test_flags_and_concat<mchar_t>();
 			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_default_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_optional_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_required_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_multi_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			std::vector<test_scenario<mchar_t>> scenarios
+					= one_test_to_rule_them_all<mchar_t>();
+			for (test_scenario<mchar_t>& s : scenarios) {
+				s.fuzzit(opt);
+			}
 		}
 	}
 
@@ -540,8 +1070,31 @@ TEST(getopt, basics) {
 			scenario.fuzzit(opt);
 		}
 		{
-			test_scenario<mchar_t> scenario = test_flags<mchar_t>();
+			test_scenario<mchar_t> scenario = test_flags_and_concat<mchar_t>();
 			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_default_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_optional_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_required_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_multi_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			std::vector<test_scenario<mchar_t>> scenarios
+					= one_test_to_rule_them_all<mchar_t>();
+			for (test_scenario<mchar_t>& s : scenarios) {
+				s.fuzzit(opt);
+			}
 		}
 	}
 
@@ -560,8 +1113,31 @@ TEST(getopt, basics) {
 			scenario.fuzzit(opt);
 		}
 		{
-			test_scenario<mchar_t> scenario = test_flags<mchar_t>();
+			test_scenario<mchar_t> scenario = test_flags_and_concat<mchar_t>();
 			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_default_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_optional_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_required_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_multi_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			std::vector<test_scenario<mchar_t>> scenarios
+					= one_test_to_rule_them_all<mchar_t>();
+			for (test_scenario<mchar_t>& s : scenarios) {
+				s.fuzzit(opt);
+			}
 		}
 	}
 
@@ -580,8 +1156,31 @@ TEST(getopt, basics) {
 			scenario.fuzzit(opt);
 		}
 		{
-			test_scenario<mchar_t> scenario = test_flags<mchar_t>();
+			test_scenario<mchar_t> scenario = test_flags_and_concat<mchar_t>();
 			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_default_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_optional_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_required_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			test_scenario<mchar_t> scenario = test_multi_arg<mchar_t>();
+			scenario.fuzzit(opt);
+		}
+		{
+			std::vector<test_scenario<mchar_t>> scenarios
+					= one_test_to_rule_them_all<mchar_t>();
+			for (test_scenario<mchar_t>& s : scenarios) {
+				s.fuzzit(opt);
+			}
 		}
 	}
 }
