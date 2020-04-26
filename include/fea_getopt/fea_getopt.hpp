@@ -304,7 +304,7 @@ private:
 	};
 
 	using fsm_t = fsm<transition, state, void(get_opt*)>;
-	using state_t = typename fsm_t::state_t;
+	using state_t = fsm_state<transition, state, void(get_opt*)>;
 
 	std::unique_ptr<fsm_t> make_machine() const;
 
