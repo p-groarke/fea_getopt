@@ -70,24 +70,12 @@ target_link_libraries(${PROJECT_NAME} INTERFACE fea_utils fea_state_machines)
 set_compile_options(${PROJECT_NAME} INTERFACE)
 
 target_sources(${PROJECT_NAME} INTERFACE
-	$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 	$<BUILD_INTERFACE:${HEADER_FILES}>
 )
 target_include_directories(${PROJECT_NAME} INTERFACE
 	$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-
-# if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-# 	target_compile_options(${PROJECT_NAME} INTERFACE -Wall -Wextra -Wpedantic -Werror)
-# elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-# 	target_compile_options(${PROJECT_NAME} INTERFACE -Wall -Wextra -Wpedantic -Werror)
-# elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Intel")
-# 	# using Intel C++
-# elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-# 	target_compile_definitions(${PROJECT_NAME} INTERFACE NOMINMAX)
-# 	target_compile_options(${PROJECT_NAME} INTERFACE /W4 /WX /EHsc /Zc:__cplusplus /FAs /permissive-)
-# endif()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/.clang-format ${CMAKE_CURRENT_BINARY_DIR}/.clang-format COPYONLY)
 
@@ -120,17 +108,6 @@ if (${BUILD_TESTING})
 
 	set_compile_options(${TEST_NAME} PRIVATE)
 	set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${TEST_NAME})
-
-	# if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-	# 	target_compile_options(${TEST_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror)
-	# elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-	# 	target_compile_options(${TEST_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror)
-	# elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Intel")
-	# 	# using Intel C++
-	# elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-	# 	target_compile_definitions(${TEST_NAME} PRIVATE NOMINMAX UNICODE _UNICODE)
-	# 	target_compile_options(${TEST_NAME} PRIVATE /W4 /WX /EHsc /Zc:__cplusplus /FAs /permissive- /utf-8)
-	# endif()
 
 	##
 	# Copy test data on build.

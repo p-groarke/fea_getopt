@@ -31,8 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #pragma once
-#include "ns_getopt.h" // temp, removeme
-
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
@@ -86,18 +84,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace fea {
 namespace detail {
 inline int mprintf(const std::string& message) {
-	return printf(message.c_str());
+	return printf("%s", message.c_str());
 }
 inline int mwprintf(const std::wstring& message) {
-	return wprintf(message.c_str());
+	return wprintf(L"%s", message.c_str());
 }
 inline int u16printf(const std::u16string& message) {
 	std::string out = utf16_to_utf8(message);
-	return printf(out.c_str());
+	return printf("%s", out.c_str());
 }
 inline int u32printf(const std::u32string& message) {
 	std::string out = utf32_to_utf8(message);
-	return printf(out.c_str());
+	return printf("%s", out.c_str());
 }
 
 template <class CharT>
@@ -303,8 +301,8 @@ private:
 		count
 	};
 
-	using fsm_t = typename fsm<transition, state, void(get_opt*)>;
-	using state_t = typename fsm_t::state_t;
+	using fsm_t = fsm<transition, state, void(get_opt*)>;
+	using state_t = fsm_state<transition, state, void(get_opt*)>;
 
 	std::unique_ptr<fsm_t> make_machine() const;
 
@@ -548,86 +546,93 @@ get_opt<CharT, PrintfT>::make_machine() const {
 	// arg0
 	{
 		state_t arg0_state;
-		arg0_state.add_transition<transition::parse_next,
+		arg0_state.template add_transition<transition::parse_next,
 				state::choose_parsing>();
-		arg0_state.add_transition<transition::exit, state::end>();
-		arg0_state.add_transition<transition::error, state::end>();
+		arg0_state.template add_transition<transition::exit, state::end>();
+		arg0_state.template add_transition<transition::error, state::end>();
 
-		arg0_state.add_event<fsm_event::on_enter>(&get_opt::on_arg0_enter);
-		ret->add_state<state::arg0>(std::move(arg0_state));
+		arg0_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_arg0_enter);
+		ret->template add_state<state::arg0>(std::move(arg0_state));
 	}
 
 	// choose_parsing
 	{
 		state_t choose_state;
-		choose_state
-				.add_transition<transition::do_concat, state::parse_concat>();
-		choose_state
-				.add_transition<transition::do_longarg, state::parse_longarg>();
-		choose_state.add_transition<transition::do_shortarg,
+		choose_state.template add_transition<transition::do_concat,
+				state::parse_concat>();
+		choose_state.template add_transition<transition::do_longarg,
+				state::parse_longarg>();
+		choose_state.template add_transition<transition::do_shortarg,
 				state::parse_shortarg>();
-		choose_state.add_transition<transition::do_raw, state::parse_raw>();
-		choose_state.add_transition<transition::help, state::end>();
-		choose_state.add_transition<transition::exit, state::end>();
-		choose_state.add_transition<transition::error, state::end>();
+		choose_state.template add_transition<transition::do_raw,
+				state::parse_raw>();
+		choose_state.template add_transition<transition::help, state::end>();
+		choose_state.template add_transition<transition::exit, state::end>();
+		choose_state.template add_transition<transition::error, state::end>();
 
-		choose_state.add_event<fsm_event::on_enter>(
+		choose_state.template add_event<fsm_event::on_enter>(
 				&get_opt::on_parse_next_enter);
-		ret->add_state<state::choose_parsing>(std::move(choose_state));
+		ret->template add_state<state::choose_parsing>(std::move(choose_state));
 	}
 
 	// raw
 	{
 		state_t raw_state;
-		raw_state.add_transition<transition::error, state::end>();
-		raw_state.add_transition<transition::parse_next,
+		raw_state.template add_transition<transition::error, state::end>();
+		raw_state.template add_transition<transition::parse_next,
 				state::choose_parsing>();
-		raw_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_raw);
-		ret->add_state<state::parse_raw>(std::move(raw_state));
+		raw_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_parse_raw);
+		ret->template add_state<state::parse_raw>(std::move(raw_state));
 	}
 
 	// long
 	{
 		state_t long_state;
-		long_state.add_transition<transition::error, state::end>();
-		long_state.add_transition<transition::parse_next,
+		long_state.template add_transition<transition::error, state::end>();
+		long_state.template add_transition<transition::parse_next,
 				state::choose_parsing>();
-		long_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_longopt);
-		ret->add_state<state::parse_longarg>(std::move(long_state));
+		long_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_parse_longopt);
+		ret->template add_state<state::parse_longarg>(std::move(long_state));
 	}
 
 	// short
 	{
 		state_t short_state;
-		short_state.add_transition<transition::error, state::end>();
-		short_state
-				.add_transition<transition::do_longarg, state::parse_longarg>();
-		short_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_shortopt);
-		ret->add_state<state::parse_shortarg>(std::move(short_state));
+		short_state.template add_transition<transition::error, state::end>();
+		short_state.template add_transition<transition::do_longarg,
+				state::parse_longarg>();
+		short_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_parse_shortopt);
+		ret->template add_state<state::parse_shortarg>(std::move(short_state));
 	}
 
 	// concat
 	{
 		state_t concat_state;
-		concat_state.add_transition<transition::error, state::end>();
-		concat_state
-				.add_transition<transition::do_longarg, state::parse_longarg>();
-		concat_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_concat);
-		ret->add_state<state::parse_concat>(std::move(concat_state));
+		concat_state.template add_transition<transition::error, state::end>();
+		concat_state.template add_transition<transition::do_longarg,
+				state::parse_longarg>();
+		concat_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_parse_concat);
+		ret->template add_state<state::parse_concat>(std::move(concat_state));
 	}
 
 	// end
 	{
 		state_t end_state;
-		end_state.add_transition<transition::help, state::end>();
+		end_state.template add_transition<transition::help, state::end>();
 
-		end_state.add_event<fsm_event::on_enter_from, transition::error>(
-				&get_opt::on_print_error);
-		end_state.add_event<fsm_event::on_enter_from, transition::help>(
-				&get_opt::on_print_help);
+		end_state.template add_event<fsm_event::on_enter_from,
+				transition::error>(&get_opt::on_print_error);
+		end_state
+				.template add_event<fsm_event::on_enter_from, transition::help>(
+						&get_opt::on_print_help);
 
-		ret->add_state<state::end>(std::move(end_state));
-		ret->set_finish_state<state::end>();
+		ret->template add_state<state::end>(std::move(end_state));
+		ret->template set_finish_state<state::end>();
 	}
 
 	return ret;
@@ -636,7 +641,7 @@ get_opt<CharT, PrintfT>::make_machine() const {
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_arg0_enter(fsm_t& m) {
 	if (_parser_args.empty()) {
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	}
 
 	bool success = true;
@@ -647,21 +652,21 @@ void get_opt<CharT, PrintfT>::on_arg0_enter(fsm_t& m) {
 	_parser_args.pop_front();
 
 	if (!success) {
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	}
 
 	if (_parser_args.empty()) {
-		return m.trigger<transition::exit>(this);
+		return m.template trigger<transition::exit>(this);
 	}
 
-	return m.trigger<transition::parse_next>(this);
+	return m.template trigger<transition::parse_next>(this);
 }
 
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_parse_next_enter(fsm_t& m) {
 
 	if (_parser_args.empty()) {
-		return m.trigger<transition::exit>(this);
+		return m.template trigger<transition::exit>(this);
 	}
 
 	string& first = _parser_args.front();
@@ -670,26 +675,26 @@ void get_opt<CharT, PrintfT>::on_parse_next_enter(fsm_t& m) {
 	if (first == FEA_ML("-h") || first == FEA_ML("--help")
 			|| first == FEA_ML("/?") || first == FEA_ML("/help")
 			|| first == FEA_ML("/h")) {
-		return m.trigger<transition::help>(this);
+		return m.template trigger<transition::help>(this);
 	}
 
 	// A single short arg, ex : '-d'
 	if (fea::starts_with(first, FEA_ML("-")) && first.size() == 2) {
-		return m.trigger<transition::do_shortarg>(this);
+		return m.template trigger<transition::do_shortarg>(this);
 	}
 
 	// A long arg, ex '--something'
 	if (fea::starts_with(first, FEA_ML("--"))) {
-		return m.trigger<transition::do_longarg>(this);
+		return m.template trigger<transition::do_longarg>(this);
 	}
 
 	// Concatenated short args, ex '-abdsc'
 	if (fea::starts_with(first, FEA_ML("-"))) {
-		return m.trigger<transition::do_concat>(this);
+		return m.template trigger<transition::do_concat>(this);
 	}
 
 	// Everything else failed, check raw args. ex '"some arg"'
-	return m.trigger<transition::do_raw>(this);
+	return m.template trigger<transition::do_raw>(this);
 }
 
 template <class CharT, class PrintfT>
@@ -704,14 +709,14 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 	if (_long_opt_to_user_opt.count(opt_str) == 0) {
 		print(FEA_ML("Could not parse : '") + opt_str + FEA_ML("'\n"));
 		print(FEA_ML("Option doesn't exist.\n"));
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	}
 
 	user_option<CharT>& user_opt = _long_opt_to_user_opt.at(opt_str);
 
 	if (user_opt.has_been_parsed) {
 		print(FEA_ML("'") + opt_str + FEA_ML("' already parsed.\n"));
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	}
 	user_opt.has_been_parsed = true;
 
@@ -734,7 +739,7 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 				|| fea::starts_with(_parser_args.front(), FEA_ML("-"))) {
 			print(FEA_ML("Could not parse : '") + opt_str + FEA_ML("'\n"));
 			print(FEA_ML("Option requires an argument, none was provided.\n"));
-			return m.trigger<transition::error>(this);
+			return m.template trigger<transition::error>(this);
 		}
 
 		string arg = _parser_args.front();
@@ -766,7 +771,7 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 			print(FEA_ML("Could not parse : '") + opt_str + FEA_ML("'\n"));
 			print(FEA_ML("Option requires at minimum 1 argument, none was "
 						 "provided.\n"));
-			return m.trigger<transition::error>(this);
+			return m.template trigger<transition::error>(this);
 		}
 
 		std::vector<string> args;
@@ -795,7 +800,7 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 		assert(false);
 		print(FEA_ML(
 				"Something went horribly wrong, please report this bug <3\n"));
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	} break;
 	}
 
@@ -894,7 +899,7 @@ void get_opt<CharT, PrintfT>::on_print_error(fsm_t& m) {
 	// print(FEA_ML("problem parsing provided options :\n"));
 	// print(_error_message);
 	print(FEA_ML("\n\n"));
-	m.trigger<transition::help>(this);
+	m.template trigger<transition::help>(this);
 }
 
 template <class CharT, class PrintfT>

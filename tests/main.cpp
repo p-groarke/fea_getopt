@@ -2,26 +2,25 @@
 #include <array>
 #include <chrono>
 #include <fea_getopt/fea_getopt.hpp>
-#include <fea_utils/fea_utils.hpp>
+#include <fea_utils/platform.hpp>
 #include <gtest/gtest.h>
 #include <random>
 
-#if defined(_MSC_VER)
+#if defined(FEA_WINDOWS)
 #include <windows.h>
 #endif
 
 namespace {
-std::filesystem::path exe_path;
 std::string last_printed_string;
 std::wstring last_printed_wstring;
 
 constexpr bool do_console_print = false;
-constexpr bool print_test_case = true;
+constexpr bool print_test_case = false;
 
 int print_to_string(const std::string& message) {
 	last_printed_string = message;
 	if constexpr (do_console_print) {
-		return printf(message.c_str());
+		return printf("%s", message.c_str());
 	} else {
 		return 0;
 	}
@@ -29,7 +28,7 @@ int print_to_string(const std::string& message) {
 int print_to_wstring(const std::wstring& message) {
 	last_printed_wstring = message;
 	if constexpr (do_console_print) {
-		return wprintf(message.c_str());
+		return wprintf(L"%s", message.c_str());
 	} else {
 		return 0;
 	}
@@ -37,7 +36,7 @@ int print_to_wstring(const std::wstring& message) {
 int print_to_string16(const std::u16string& message) {
 	last_printed_string = fea::utf16_to_utf8(message);
 	if constexpr (do_console_print) {
-		return printf(last_printed_string.c_str());
+		return printf("%s", last_printed_string.c_str());
 	} else {
 		return 0;
 	}
@@ -45,7 +44,7 @@ int print_to_string16(const std::u16string& message) {
 int print_to_string32(const std::u32string& message) {
 	last_printed_string = fea::utf32_to_utf8(message);
 	if constexpr (do_console_print) {
-		return printf(last_printed_string.c_str());
+		return printf("%s", last_printed_string.c_str());
 	} else {
 		return 0;
 	}
@@ -1189,8 +1188,6 @@ TEST(fea_getopt, basics) {
 } // namespace
 
 int main(int argc, char** argv) {
-	exe_path = fea::executable_dir(argv[0]);
-
 	::testing::InitGoogleTest(&argc, argv);
 	return RUN_ALL_TESTS();
 }
