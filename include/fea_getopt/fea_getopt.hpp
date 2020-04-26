@@ -198,11 +198,11 @@ struct get_opt {
 
 	static constexpr CharT null_char = FEA_CH('\0');
 
-	get_opt(size_t output_width = 120);
+	get_opt();
 
 	// Construct using a custom print function. The function signature must
 	// match printf.
-	get_opt(PrintfT printf_func, size_t output_width = 120);
+	get_opt(PrintfT printf_func);
 
 	// An option that uses "raw args". Raw args do not have '--' or '-' in
 	// front of them. They are often file names or strings. These will be
@@ -258,6 +258,14 @@ struct get_opt {
 
 	// Adds some text after printing the help.
 	void add_help_outro(const string& message);
+
+	// By default, if a user provides no options, help will be printed and
+	// success will be false. Use this to allow success on no arguments passed.
+	void no_options_is_ok();
+
+	// By default, the text wrapping will use 120 characters width.
+	// Use this to change the width of the console window.
+	void console_width(size_t character_width);
 
 	// Parse the arguments, execute your callbacks, returns success bool
 	// (and prints help if there was an error).
@@ -331,21 +339,21 @@ private:
 	string _help_outro;
 
 	size_t _output_width = 120;
+	bool _no_arg_is_help = true;
 
 	// State machine eval things :
 	std::deque<string> _parser_args;
+	bool _success = true;
 };
 
 template <class CharT, class PrintfT>
-get_opt<CharT, PrintfT>::get_opt(size_t output_width /* = 120*/)
-		: get_opt(detail::get_print<CharT>(), output_width) {
+get_opt<CharT, PrintfT>::get_opt()
+		: get_opt(detail::get_print<CharT>()) {
 }
 
 template <class CharT, class PrintfT>
-get_opt<CharT, PrintfT>::get_opt(
-		PrintfT printf_func, size_t output_width /* = 120*/)
-		: _print_func(printf_func)
-		, _output_width(output_width) {
+get_opt<CharT, PrintfT>::get_opt(PrintfT printf_func)
+		: _print_func(printf_func) {
 }
 
 template <class CharT, class PrintfT>
@@ -362,6 +370,8 @@ void get_opt<CharT, PrintfT>::reset() {
 	for (auto& p : _long_opt_to_user_opt) {
 		p.second.has_been_parsed = false;
 	}
+
+	_success = true;
 }
 
 
@@ -512,6 +522,16 @@ void get_opt<CharT, PrintfT>::add_help_outro(const string& message) {
 	_help_outro = message;
 }
 
+template <class CharT, class PrintfT>
+void fea::get_opt<CharT, PrintfT>::no_options_is_ok() {
+	_no_arg_is_help = false;
+}
+
+template <class CharT, class PrintfT>
+void fea::get_opt<CharT, PrintfT>::console_width(size_t output_width) {
+	_output_width = output_width;
+}
+
 
 template <class CharT, class PrintfT>
 bool get_opt<CharT, PrintfT>::parse_options(
@@ -530,7 +550,7 @@ bool get_opt<CharT, PrintfT>::parse_options(
 		_machine->update(this);
 	}
 
-	return true;
+	return _success;
 }
 
 template <class CharT, class PrintfT>
@@ -550,6 +570,7 @@ get_opt<CharT, PrintfT>::make_machine() const {
 				state::choose_parsing>();
 		arg0_state.template add_transition<transition::exit, state::end>();
 		arg0_state.template add_transition<transition::error, state::end>();
+		arg0_state.template add_transition<transition::help, state::end>();
 
 		arg0_state.template add_event<fsm_event::on_enter>(
 				&get_opt::on_arg0_enter);
@@ -656,7 +677,11 @@ void get_opt<CharT, PrintfT>::on_arg0_enter(fsm_t& m) {
 	}
 
 	if (_parser_args.empty()) {
-		return m.template trigger<transition::exit>(this);
+		if (_no_arg_is_help) {
+			return m.template trigger<transition::help>(this);
+		} else {
+			return m.template trigger<transition::exit>(this);
+		}
 	}
 
 	return m.template trigger<transition::parse_next>(this);
@@ -904,6 +929,8 @@ void get_opt<CharT, PrintfT>::on_print_error(fsm_t& m) {
 
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
+	_success = false;
+
 	using namespace detail;
 
 	// The first string is printed as-is.
@@ -992,7 +1019,7 @@ void get_opt<CharT, PrintfT>::on_print_help(fsm_t&) {
 	constexpr size_t rawopt_help_indent = 4;
 	const string opt_str = FEA_ML(" <optional>");
 	const string req_str = FEA_ML(" <value>");
-	const string multi_str = FEA_ML(" 'mul ti ple'");
+	const string multi_str = FEA_ML(" <multiple>");
 	const string default_beg = FEA_ML(" <=");
 	const string default_end = FEA_ML(">");
 
