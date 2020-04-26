@@ -2,16 +2,15 @@
 #include <array>
 #include <chrono>
 #include <fea_getopt/fea_getopt.hpp>
-#include <fea_utils/fea_utils.hpp>
+#include <fea_utils/platform.hpp>
 #include <gtest/gtest.h>
 #include <random>
 
-#if defined(_MSC_VER)
+#if defined(FEA_WINDOWS)
 #include <windows.h>
 #endif
 
 namespace {
-std::filesystem::path exe_path;
 std::string last_printed_string;
 std::wstring last_printed_wstring;
 
@@ -1189,8 +1188,6 @@ TEST(fea_getopt, basics) {
 } // namespace
 
 int main(int argc, char** argv) {
-	exe_path = fea::executable_dir(argv[0]);
-
 	::testing::InitGoogleTest(&argc, argv);
 	return RUN_ALL_TESTS();
 }
