@@ -641,7 +641,7 @@ get_opt<CharT, PrintfT>::make_machine() const {
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_arg0_enter(fsm_t& m) {
 	if (_parser_args.empty()) {
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	}
 
 	bool success = true;
@@ -652,21 +652,21 @@ void get_opt<CharT, PrintfT>::on_arg0_enter(fsm_t& m) {
 	_parser_args.pop_front();
 
 	if (!success) {
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	}
 
 	if (_parser_args.empty()) {
-		return m.trigger<transition::exit>(this);
+		return m.template trigger<transition::exit>(this);
 	}
 
-	return m.trigger<transition::parse_next>(this);
+	return m.template trigger<transition::parse_next>(this);
 }
 
 template <class CharT, class PrintfT>
 void get_opt<CharT, PrintfT>::on_parse_next_enter(fsm_t& m) {
 
 	if (_parser_args.empty()) {
-		return m.trigger<transition::exit>(this);
+		return m.template trigger<transition::exit>(this);
 	}
 
 	string& first = _parser_args.front();
@@ -675,26 +675,26 @@ void get_opt<CharT, PrintfT>::on_parse_next_enter(fsm_t& m) {
 	if (first == FEA_ML("-h") || first == FEA_ML("--help")
 			|| first == FEA_ML("/?") || first == FEA_ML("/help")
 			|| first == FEA_ML("/h")) {
-		return m.trigger<transition::help>(this);
+		return m.template trigger<transition::help>(this);
 	}
 
 	// A single short arg, ex : '-d'
 	if (fea::starts_with(first, FEA_ML("-")) && first.size() == 2) {
-		return m.trigger<transition::do_shortarg>(this);
+		return m.template trigger<transition::do_shortarg>(this);
 	}
 
 	// A long arg, ex '--something'
 	if (fea::starts_with(first, FEA_ML("--"))) {
-		return m.trigger<transition::do_longarg>(this);
+		return m.template trigger<transition::do_longarg>(this);
 	}
 
 	// Concatenated short args, ex '-abdsc'
 	if (fea::starts_with(first, FEA_ML("-"))) {
-		return m.trigger<transition::do_concat>(this);
+		return m.template trigger<transition::do_concat>(this);
 	}
 
 	// Everything else failed, check raw args. ex '"some arg"'
-	return m.trigger<transition::do_raw>(this);
+	return m.template trigger<transition::do_raw>(this);
 }
 
 template <class CharT, class PrintfT>
@@ -709,14 +709,14 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 	if (_long_opt_to_user_opt.count(opt_str) == 0) {
 		print(FEA_ML("Could not parse : '") + opt_str + FEA_ML("'\n"));
 		print(FEA_ML("Option doesn't exist.\n"));
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	}
 
 	user_option<CharT>& user_opt = _long_opt_to_user_opt.at(opt_str);
 
 	if (user_opt.has_been_parsed) {
 		print(FEA_ML("'") + opt_str + FEA_ML("' already parsed.\n"));
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	}
 	user_opt.has_been_parsed = true;
 
@@ -739,7 +739,7 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 				|| fea::starts_with(_parser_args.front(), FEA_ML("-"))) {
 			print(FEA_ML("Could not parse : '") + opt_str + FEA_ML("'\n"));
 			print(FEA_ML("Option requires an argument, none was provided.\n"));
-			return m.trigger<transition::error>(this);
+			return m.template trigger<transition::error>(this);
 		}
 
 		string arg = _parser_args.front();
@@ -771,7 +771,7 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 			print(FEA_ML("Could not parse : '") + opt_str + FEA_ML("'\n"));
 			print(FEA_ML("Option requires at minimum 1 argument, none was "
 						 "provided.\n"));
-			return m.trigger<transition::error>(this);
+			return m.template trigger<transition::error>(this);
 		}
 
 		std::vector<string> args;
@@ -800,7 +800,7 @@ void get_opt<CharT, PrintfT>::on_parse_longopt(fsm_t& m) {
 		assert(false);
 		print(FEA_ML(
 				"Something went horribly wrong, please report this bug <3\n"));
-		return m.trigger<transition::error>(this);
+		return m.template trigger<transition::error>(this);
 	} break;
 	}
 
@@ -899,7 +899,7 @@ void get_opt<CharT, PrintfT>::on_print_error(fsm_t& m) {
 	// print(FEA_ML("problem parsing provided options :\n"));
 	// print(_error_message);
 	print(FEA_ML("\n\n"));
-	m.trigger<transition::help>(this);
+	m.template trigger<transition::help>(this);
 }
 
 template <class CharT, class PrintfT>
