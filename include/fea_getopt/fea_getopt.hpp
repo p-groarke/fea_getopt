@@ -86,18 +86,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace fea {
 namespace detail {
 inline int mprintf(const std::string& message) {
-	return printf(message.c_str());
+	return printf("%s", message.c_str());
 }
 inline int mwprintf(const std::wstring& message) {
-	return wprintf(message.c_str());
+	return wprintf(L"%s", message.c_str());
 }
 inline int u16printf(const std::u16string& message) {
 	std::string out = utf16_to_utf8(message);
-	return printf(out.c_str());
+	return printf("%s", out.c_str());
 }
 inline int u32printf(const std::u32string& message) {
 	std::string out = utf32_to_utf8(message);
-	return printf(out.c_str());
+	return printf("%s", out.c_str());
 }
 
 template <class CharT>
@@ -303,7 +303,7 @@ private:
 		count
 	};
 
-	using fsm_t = typename fsm<transition, state, void(get_opt*)>;
+	using fsm_t = fsm<transition, state, void(get_opt*)>;
 	using state_t = typename fsm_t::state_t;
 
 	std::unique_ptr<fsm_t> make_machine() const;
