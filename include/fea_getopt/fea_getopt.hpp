@@ -46,41 +46,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 
-#define FEA_MAKE_LITERAL_T(CharType, str) \
-	[]() { \
-		if constexpr (std::is_same_v<CharType, char>) { \
-			return str; \
-		} else if constexpr (std::is_same_v<CharType, wchar_t>) { \
-			return L##str; \
-		} else if constexpr (std::is_same_v<CharType, char16_t>) { \
-			return u##str; \
-		} else if constexpr (std::is_same_v<CharType, char32_t>) { \
-			return U##str; \
-		} \
-	}()
-
-#define FEA_MAKE_LITERAL(str) FEA_MAKE_LITERAL_T(CharT, str)
-
-#define FEA_ML(str) FEA_MAKE_LITERAL_T(CharT, str)
-
-#define FEA_MAKE_CHAR_LITERAL_T(CharType, str) \
-	[]() { \
-		if constexpr (std::is_same_v<CharType, char>) { \
-			return str; \
-		} else if constexpr (std::is_same_v<CharType, wchar_t>) { \
-			return L##str; \
-		} else if constexpr (std::is_same_v<CharType, char16_t>) { \
-			return u##str; \
-		} else if constexpr (std::is_same_v<CharType, char32_t>) { \
-			return U##str; \
-		} \
-	}()
-
-#define FEA_MAKE_CHAR_LITERAL(str) FEA_MAKE_CHAR_LITERAL_T(CharT, str)
-
-#define FEA_CH(ch) FEA_MAKE_CHAR_LITERAL_T(CharT, ch)
-
-
 namespace fea {
 namespace detail {
 inline int mprintf(const std::string& message) {
