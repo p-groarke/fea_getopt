@@ -551,8 +551,9 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		arg0_state.template add_transition<transition::exit, state::end>();
 		arg0_state.template add_transition<transition::error, state::end>();
 
-		arg0_state.add_event<fsm_event::on_enter>(&get_opt::on_arg0_enter);
-		ret->add_state<state::arg0>(std::move(arg0_state));
+		arg0_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_arg0_enter);
+		ret->template add_state<state::arg0>(std::move(arg0_state));
 	}
 
 	// choose_parsing
@@ -570,9 +571,9 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		choose_state.template add_transition<transition::exit, state::end>();
 		choose_state.template add_transition<transition::error, state::end>();
 
-		choose_state.add_event<fsm_event::on_enter>(
+		choose_state.template add_event<fsm_event::on_enter>(
 				&get_opt::on_parse_next_enter);
-		ret->add_state<state::choose_parsing>(std::move(choose_state));
+		ret->template add_state<state::choose_parsing>(std::move(choose_state));
 	}
 
 	// raw
@@ -581,8 +582,9 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		raw_state.template add_transition<transition::error, state::end>();
 		raw_state.template add_transition<transition::parse_next,
 				state::choose_parsing>();
-		raw_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_raw);
-		ret->add_state<state::parse_raw>(std::move(raw_state));
+		raw_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_parse_raw);
+		ret->template add_state<state::parse_raw>(std::move(raw_state));
 	}
 
 	// long
@@ -591,8 +593,9 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		long_state.template add_transition<transition::error, state::end>();
 		long_state.template add_transition<transition::parse_next,
 				state::choose_parsing>();
-		long_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_longopt);
-		ret->add_state<state::parse_longarg>(std::move(long_state));
+		long_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_parse_longopt);
+		ret->template add_state<state::parse_longarg>(std::move(long_state));
 	}
 
 	// short
@@ -601,8 +604,9 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		short_state.template add_transition<transition::error, state::end>();
 		short_state.template add_transition<transition::do_longarg,
 				state::parse_longarg>();
-		short_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_shortopt);
-		ret->add_state<state::parse_shortarg>(std::move(short_state));
+		short_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_parse_shortopt);
+		ret->template add_state<state::parse_shortarg>(std::move(short_state));
 	}
 
 	// concat
@@ -611,8 +615,9 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		concat_state.template add_transition<transition::error, state::end>();
 		concat_state.template add_transition<transition::do_longarg,
 				state::parse_longarg>();
-		concat_state.add_event<fsm_event::on_enter>(&get_opt::on_parse_concat);
-		ret->add_state<state::parse_concat>(std::move(concat_state));
+		concat_state.template add_event<fsm_event::on_enter>(
+				&get_opt::on_parse_concat);
+		ret->template add_state<state::parse_concat>(std::move(concat_state));
 	}
 
 	// end
@@ -620,13 +625,14 @@ get_opt<CharT, PrintfT>::make_machine() const {
 		state_t end_state;
 		end_state.template add_transition<transition::help, state::end>();
 
-		end_state.add_event<fsm_event::on_enter_from, transition::error>(
-				&get_opt::on_print_error);
-		end_state.add_event<fsm_event::on_enter_from, transition::help>(
-				&get_opt::on_print_help);
+		end_state.template add_event<fsm_event::on_enter_from,
+				transition::error>(&get_opt::on_print_error);
+		end_state
+				.template add_event<fsm_event::on_enter_from, transition::help>(
+						&get_opt::on_print_help);
 
-		ret->add_state<state::end>(std::move(end_state));
-		ret->set_finish_state<state::end>();
+		ret->template add_state<state::end>(std::move(end_state));
+		ret->template set_finish_state<state::end>();
 	}
 
 	return ret;
