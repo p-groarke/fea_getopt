@@ -15,7 +15,7 @@ std::string last_printed_string;
 std::wstring last_printed_wstring;
 
 constexpr bool do_console_print = false;
-constexpr bool print_test_case = true;
+constexpr bool print_test_case = false;
 
 int print_to_string(const std::string& message) {
 	last_printed_string = message;
