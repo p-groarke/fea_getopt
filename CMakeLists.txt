@@ -10,6 +10,8 @@ include(FetchContent)
 
 # Require up-to-date compiler.
 set(CMAKE_CXX_STANDARD 17)
+
+# Conan search paths.
 set(CMAKE_MODULE_PATH ${CMAKE_BINARY_DIR} ${CMAKE_MODULE_PATH})
 set(CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR} ${CMAKE_PREFIX_PATH})
 
@@ -31,7 +33,7 @@ set(DEPENDENCY_FOLDER "Dependencies")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER ${DEPENDENCY_FOLDER})
 
-
+# Compile Options
 function(set_compile_options TARGET_NAME EXPOSURE)
 	if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
 		target_compile_options(${TARGET_NAME} ${EXPOSURE} -Wall -Wpedantic -Wextra -Werror)
@@ -46,38 +48,40 @@ function(set_compile_options TARGET_NAME EXPOSURE)
 	endif()
 endfunction()
 
+# clang-format
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/.clang-format ${CMAKE_CURRENT_BINARY_DIR}/.clang-format COPYONLY)
 
-##
 # External dependencies.
-##
 FetchContent_Declare(fea_utils
 	GIT_REPOSITORY https://github.com/p-groarke/fea_utils.git
 )
 FetchContent_MakeAvailable(fea_utils)
+# set_target_properties(fea_utils_tests PROPERTIES FOLDER ${DEPENDENCY_FOLDER})
 
 FetchContent_Declare(fea_state_machines
 	GIT_REPOSITORY https://github.com/p-groarke/fea_state_machines.git
 )
 FetchContent_MakeAvailable(fea_state_machines)
+set_target_properties(fea_state_machines_tests PROPERTIES FOLDER ${DEPENDENCY_FOLDER})
 
 
-##
 # Main Project
-##
 file(GLOB_RECURSE HEADER_FILES "${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/*.hpp")
 add_library(${PROJECT_NAME} INTERFACE)
 target_link_libraries(${PROJECT_NAME} INTERFACE fea_utils fea_state_machines)
 set_compile_options(${PROJECT_NAME} INTERFACE)
 
+# To see files in IDE
 target_sources(${PROJECT_NAME} INTERFACE
-	$<BUILD_INTERFACE:${HEADER_FILES}>
+	"$<BUILD_INTERFACE:${HEADER_FILES}>"
 )
+
+# Interface
 target_include_directories(${PROJECT_NAME} INTERFACE
 	$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/.clang-format ${CMAKE_CURRENT_BINARY_DIR}/.clang-format COPYONLY)
 
 # Install Package Configuration
 install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}_targets)
@@ -92,26 +96,26 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/${PROJECT_NAME}" DESTINAT
 
 
 # Tests
-option(BUILD_TESTING "Build and run tests." Off)
-if (${BUILD_TESTING})
+option(FEA_GETOPT_TESTS "Build and run tests." On)
+if (${FEA_GETOPT_TESTS})
 	enable_testing()
-	
+
+	# Tests external dependencies.
+	find_package(GTest CONFIG REQUIRED)
+
+
+	# Test Project
 	set(TEST_NAME ${PROJECT_NAME}_tests)
 	file(GLOB_RECURSE TEST_SOURCES "tests/*.cpp" "tests/*.c" "tests/*.hpp" "tests/*.h" "tests/*.tpp")
 	add_executable(${TEST_NAME} ${TEST_SOURCES})
-
-	find_package(GTest CONFIG REQUIRED)
-	target_link_libraries(${TEST_NAME} PRIVATE ${PROJECT_NAME} GTest::GTest fea_utils)
-
-	gtest_discover_tests(${TEST_NAME})
-	add_dependencies(${TEST_NAME} ${PROJECT_NAME})
-
 	set_compile_options(${TEST_NAME} PRIVATE)
 	set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${TEST_NAME})
 
-	##
+	target_link_libraries(${TEST_NAME} PRIVATE ${PROJECT_NAME} GTest::GTest fea_utils)
+	gtest_discover_tests(${TEST_NAME})
+
+
 	# Copy test data on build.
-	##
 	set(DATA_IN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests/data)
 	set(DATA_OUT_DIR ${BINARY_OUT_DIR}/tests_data)
 	add_custom_command(TARGET ${TEST_NAME} POST_BUILD
