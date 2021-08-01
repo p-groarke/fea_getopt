@@ -1,3 +1,10 @@
+<br/>
+
+# This repository is inactive and kept for posterity's sake.
+# Any further development will happen in [fea_libs](https://github.com/p-groarke/fea_libs). Cheers.
+<br/>
+<br/>
+
 # fea_getopt
 [![Build status](https://ci.appveyor.com/api/projects/status/v2exjtkw5699bpi4/branch/master?svg=true)](https://ci.appveyor.com/project/p-groarke/fea-getopt/branch/master)
 [![Build Status](https://travis-ci.org/p-groarke/fea_getopt.svg?branch=master)](https://travis-ci.org/p-groarke/fea_getopt)
